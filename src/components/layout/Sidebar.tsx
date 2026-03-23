@@ -2,7 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard, Briefcase, TrendingUp, PieChart, BarChart2,
   GraduationCap, Building2, Users, Building, Globe, Trophy,
-  Settings, Zap, ChevronRight, Home
+  Settings, Zap, ChevronRight, Home, Swords, Brain, Target
 } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { GameScreen } from '../../types';
@@ -28,7 +28,10 @@ const NAV_ITEMS: NavItem[] = [
   { screen: 'business', label: 'Business', icon: <Building2 size={16} />, category: 'growth' },
   { screen: 'team', label: 'Team', icon: <Users size={16} />, requiresMechanic: 'team_hiring', category: 'growth' },
   { screen: 'fund', label: 'Fund', icon: <Building size={16} />, requiresMechanic: 'hedge_fund_registered', category: 'elite' },
+  { screen: 'rivals', label: 'Rivals', icon: <Swords size={16} />, requiresMechanic: 'hedge_fund_registered', category: 'elite' },
+  { screen: 'quant', label: 'Quant Lab', icon: <Brain size={16} />, requiresMechanic: 'quant_trading', category: 'elite' },
   { screen: 'lifestyle', label: 'Lifestyle', icon: <Home size={16} />, category: 'growth' },
+  { screen: 'milestones', label: 'Milestones', icon: <Target size={16} />, category: 'info' },
   { screen: 'economy', label: 'Economy', icon: <Globe size={16} />, category: 'info' },
   { screen: 'achievements', label: 'Achievements', icon: <Trophy size={16} />, category: 'info' },
   { screen: 'settings', label: 'Settings', icon: <Settings size={16} />, category: 'info' },

@@ -15,6 +15,9 @@ export type GameScreen =
   | 'fund'
   | 'lifestyle'
   | 'economy'
+  | 'rivals'
+  | 'quant'
+  | 'milestones'
   | 'achievements'
   | 'settings';
 
@@ -302,9 +305,38 @@ export interface OptionContract {
   purchaseDate: number;
 }
 
+export interface ShortPosition {
+  ticker: string;
+  shares: number;
+  entryPrice: number;
+  currentPrice: number;
+  marginRequired: number;   // cash held as collateral
+  unrealizedPnL: number;
+  unrealizedPnLPercent: number;
+  openDate: number;
+  interestAccrued: number;
+}
+
+export interface LimitOrder {
+  id: string;
+  ticker: string;
+  assetType: AssetType;
+  orderType: 'limit' | 'stop_loss' | 'trailing_stop';
+  side: 'buy' | 'sell';
+  shares: number;
+  limitPrice?: number;
+  stopPrice?: number;
+  trailingPercent?: number;
+  createdDate: number;
+  status: 'pending' | 'filled' | 'cancelled' | 'expired';
+  expiryDays?: number;
+}
+
 export interface Portfolio {
   holdings: Record<string, PortfolioHolding>;
   options: OptionContract[];
+  shortPositions: Record<string, ShortPosition>;
+  limitOrders: LimitOrder[];
   watchlist: string[];
   totalValue: number;
   totalCost: number;
@@ -334,7 +366,7 @@ export interface TradeRecord {
   id: string;
   date: number;
   ticker: string;
-  action: 'buy' | 'sell' | 'option_buy' | 'option_sell' | 'option_expire';
+  action: 'buy' | 'sell' | 'short' | 'cover' | 'option_buy' | 'option_sell' | 'option_expire';
   shares: number;
   price: number;
   total: number;
@@ -666,6 +698,8 @@ export interface GameState {
   businesses: Record<string, Business>;
   employees: Record<string, Employee>;
   hedgeFund: HedgeFund | null;
+  rivals: import('../data/rivals').RivalManager[];
+  completedMilestones: string[];
   events: {
     activeEvent: GameEvent | null;
     eventHistory: string[];

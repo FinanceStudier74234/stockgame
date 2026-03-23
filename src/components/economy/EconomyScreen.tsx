@@ -1,5 +1,5 @@
-import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
+import React, { useMemo } from 'react';
+import { BarChart, Bar, Cell, ResponsiveContainer, XAxis, Tooltip } from 'recharts';
 import { useGameStore } from '../../store/gameStore';
 import { getPhaseColor, getPhaseDescription } from '../../engine/economyEngine';
 import Card from '../ui/Card';
@@ -21,7 +21,7 @@ const PHASE_ICONS: Record<string, string> = {
 export default function EconomyScreen() {
   const { economy, stocks } = useGameStore();
 
-  const sectors = ['technology', 'ai', 'banking', 'healthcare', 'energy', 'consumer', 'defense', 'industrials'];
+  const sectors = ['technology', 'ai', 'banking', 'healthcare', 'energy', 'consumer', 'defense', 'industrials', 'semiconductors', 'biotech', 'realestate', 'utilities'];
   const sectorPerformance = sectors.map(sector => {
     const sectorStocks = Object.values(stocks).filter(s => s.sector === sector);
     const avgChange = sectorStocks.length > 0
@@ -180,6 +180,72 @@ export default function EconomyScreen() {
           </div>
         </Card>
       </div>
+
+      {/* Sector Heatmap */}
+      <Card title="Sector Heatmap" padding="md">
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          {sectorPerformance.map(s => {
+            const intensity = Math.min(1, Math.abs(s.change) / 3);
+            const bg = s.change > 0
+              ? `rgba(16,185,129,${0.1 + intensity * 0.5})`
+              : `rgba(239,68,68,${0.1 + intensity * 0.5})`;
+            const border = s.change > 0
+              ? `rgba(16,185,129,${0.2 + intensity * 0.4})`
+              : `rgba(239,68,68,${0.2 + intensity * 0.4})`;
+            const isFavored = economy.sectorRotation.includes(s.sector as any);
+            return (
+              <div
+                key={s.sector}
+                className="rounded-lg p-2.5 text-center relative"
+                style={{ backgroundColor: bg, border: `1px solid ${border}` }}
+              >
+                {isFavored && (
+                  <div className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-accent-yellow" />
+                )}
+                <div className="text-[9px] text-gray-300 capitalize truncate mb-1">
+                  {s.sector}
+                </div>
+                <div className={`text-xs font-bold num ${s.change >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                  {s.change >= 0 ? '+' : ''}{s.change.toFixed(2)}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="text-[9px] text-gray-600 flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-accent-yellow" />
+          Yellow dot = currently favored by market rotation
+        </div>
+      </Card>
+
+      {/* News Feed */}
+      {economy.newsHeadlines.length > 0 && (
+        <Card title="Market News" padding="md">
+          <div className="space-y-2">
+            {economy.newsHeadlines.slice(0, 8).map(h => (
+              <div key={h.id} className="flex items-start gap-3 py-2 border-b border-dark-500 last:border-0">
+                <div className={`mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  h.sentiment === 'bullish' ? 'bg-accent-green' :
+                  h.sentiment === 'bearish' ? 'bg-accent-red' : 'bg-gray-500'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-gray-200 leading-relaxed">{h.headline}</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[9px] font-semibold ${
+                      h.sentiment === 'bullish' ? 'text-accent-green' :
+                      h.sentiment === 'bearish' ? 'text-accent-red' : 'text-gray-500'
+                    }`}>{h.sentiment}</span>
+                    {h.affectedSectors.slice(0, 2).map(s => (
+                      <Badge key={s} variant="gray" size="xs">{s}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-[9px] text-gray-600 flex-shrink-0">Day {h.date}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* Investing implications */}
       <Card title="Current Investment Implications" padding="md">

@@ -217,6 +217,8 @@ export function createInitialPortfolio(): Portfolio {
   return {
     holdings: {},
     options: [],
+    shortPositions: {},
+    limitOrders: [],
     watchlist: ['APX', 'NVDA', 'SPY'],
     totalValue: 0,
     totalCost: 0,

@@ -26,6 +26,9 @@ import LifestyleScreen from './components/lifestyle/LifestyleScreen';
 import EconomyScreen from './components/economy/EconomyScreen';
 import AchievementsScreen from './components/achievements/AchievementsScreen';
 import SettingsScreen from './components/settings/SettingsScreen';
+import RivalsScreen from './components/rivals/RivalsScreen';
+import QuantScreen from './components/quant/QuantScreen';
+import MilestonesScreen from './components/milestones/MilestonesScreen';
 
 // Events
 import EventModal from './components/events/EventModal';
@@ -51,6 +54,9 @@ function GameContent() {
       case 'fund': return <FundScreen />;
       case 'lifestyle': return <LifestyleScreen />;
       case 'economy': return <EconomyScreen />;
+      case 'rivals': return <RivalsScreen />;
+      case 'quant': return <QuantScreen />;
+      case 'milestones': return <MilestonesScreen />;
       case 'achievements': return <AchievementsScreen />;
       case 'settings': return <SettingsScreen />;
       default: return <Dashboard />;

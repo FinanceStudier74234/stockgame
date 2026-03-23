@@ -24,6 +24,8 @@ import { getJobById, getAvailableJobs } from '../data/jobs';
 import { getRandomEvents } from '../data/events';
 import { getBusinessTemplateById } from '../data/businesses';
 import { createEmployeeFromCandidate, EMPLOYEE_POOL, calculateMonthlyPayroll, calculateTeamBonus } from '../data/employeeRoster';
+import { RIVAL_MANAGERS, simulateRivalReturn } from '../data/rivals';
+import { MILESTONES, checkMilestones } from '../data/winConditions';
 import { v4 as uuidv4 } from '../utils/uuid';
 
 interface GameActions {
@@ -53,6 +55,14 @@ interface GameActions {
   sellStock: (ticker: string, shares: number, price: number) => void;
   addToWatchlist: (ticker: string) => void;
   removeFromWatchlist: (ticker: string) => void;
+
+  // Short selling
+  shortSell: (ticker: string, shares: number) => void;
+  coverShort: (ticker: string, shares: number) => void;
+
+  // Limit orders
+  placeLimitOrder: (order: Omit<import('../types').LimitOrder, 'id' | 'status' | 'createdDate'>) => void;
+  cancelLimitOrder: (orderId: string) => void;
 
   // Options
   buyOption: (ticker: string, type: 'call' | 'put', strike: number, daysToExpiry: number, contracts: number) => void;
@@ -106,6 +116,8 @@ const INITIAL_STATE: Omit<GameState, keyof GameActions> = {
   businesses: {},
   employees: {},
   hedgeFund: null,
+  rivals: RIVAL_MANAGERS.map(r => ({ ...r })),
+  completedMilestones: [] as string[],
   events: { activeEvent: null, eventHistory: [], pendingEvents: [] },
   achievements: createAchievementsMap(),
   notifications: [],
@@ -502,6 +514,149 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
+        // Process short positions (update P&L and margin calls)
+        if (Object.keys(updatedPlayer.portfolio.shortPositions || {}).length > 0) {
+          const updatedShorts: Record<string, import('../types').ShortPosition> = {};
+          let marginCallTriggered = false;
+          for (const [ticker, short] of Object.entries(updatedPlayer.portfolio.shortPositions)) {
+            const stock = newStocks[ticker];
+            if (!stock) { updatedShorts[ticker] = short; continue; }
+            const pnl = (short.entryPrice - stock.currentPrice) * short.shares;
+            const pnlPct = pnl / (short.entryPrice * short.shares);
+            const dailyInterest = short.entryPrice * short.shares * 0.08 / 365;
+            const newInterest = short.interestAccrued + dailyInterest;
+            updatedShorts[ticker] = {
+              ...short,
+              currentPrice: stock.currentPrice,
+              unrealizedPnL: pnl - newInterest,
+              unrealizedPnLPercent: pnlPct * 100,
+              interestAccrued: newInterest,
+            };
+            // Margin call if loss exceeds 30% of collateral
+            if (pnlPct < -0.30) {
+              marginCallTriggered = true;
+              get().addNotification({
+                type: 'error',
+                title: `MARGIN CALL: ${ticker}`,
+                message: `Short position on ${ticker} has lost 30%+. Cover position immediately!`,
+                duration: 12000,
+              });
+            }
+          }
+          updatedPlayer = {
+            ...updatedPlayer,
+            portfolio: { ...updatedPlayer.portfolio, shortPositions: updatedShorts },
+          };
+        }
+
+        // Process limit orders
+        const openOrders = (updatedPlayer.portfolio.limitOrders || []).filter(o => o.status === 'pending');
+        if (openOrders.length > 0) {
+          let portfolioAfterOrders = updatedPlayer.portfolio;
+          let cashAfterOrders = updatedPlayer.finances.cash;
+          const processedOrders: import('../types').LimitOrder[] = [];
+
+          for (const order of openOrders) {
+            const stock = newStocks[order.ticker];
+            if (!stock) { processedOrders.push(order); continue; }
+            const price = stock.currentPrice;
+            let filled = false;
+
+            if (order.orderType === 'limit') {
+              filled = order.side === 'buy' ? price <= (order.limitPrice || Infinity) : price >= (order.limitPrice || 0);
+            } else if (order.orderType === 'stop_loss') {
+              filled = order.side === 'sell' ? price <= (order.stopPrice || 0) : price >= (order.stopPrice || Infinity);
+            } else if (order.orderType === 'trailing_stop') {
+              const trail = order.trailingPercent || 5;
+              filled = order.side === 'sell' && price <= (order.stopPrice || 0) * (1 - trail / 100);
+            }
+
+            if (filled) {
+              if (order.side === 'buy') {
+                const cost = price * order.shares;
+                if (cashAfterOrders >= cost) {
+                  const r = executeBuy(portfolioAfterOrders, order.ticker, order.assetType, order.shares, price, cashAfterOrders, totalDays);
+                  if (!r.error) {
+                    portfolioAfterOrders = r.portfolio;
+                    cashAfterOrders = r.newCash;
+                    processedOrders.push({ ...order, status: 'filled' as const });
+                    get().addNotification({ type: 'success', title: `Order Filled: ${order.ticker}`, message: `Bought ${order.shares} shares @ $${price.toFixed(2)}` });
+                    continue;
+                  }
+                }
+              } else {
+                const r = executeSell(portfolioAfterOrders, order.ticker, order.shares, price, cashAfterOrders, totalDays);
+                if (!r.error) {
+                  portfolioAfterOrders = r.portfolio;
+                  cashAfterOrders = r.newCash;
+                  processedOrders.push({ ...order, status: 'filled' as const });
+                  get().addNotification({ type: 'success', title: `Order Filled: ${order.ticker}`, message: `Sold ${order.shares} shares @ $${price.toFixed(2)}` });
+                  continue;
+                }
+              }
+            }
+            // Expire orders older than expiryDays
+            if (order.expiryDays && totalDays - order.createdDate > order.expiryDays) {
+              processedOrders.push({ ...order, status: 'expired' as const });
+            } else {
+              processedOrders.push(order);
+            }
+          }
+
+          // Keep filled/expired in history, only pass active ones forward
+          const allOrders = [
+            ...(updatedPlayer.portfolio.limitOrders || []).filter(o => o.status !== 'pending'),
+            ...processedOrders,
+          ].slice(-50);
+
+          updatedPlayer = {
+            ...updatedPlayer,
+            portfolio: { ...portfolioAfterOrders, limitOrders: allOrders },
+            finances: { ...updatedPlayer.finances, cash: cashAfterOrders },
+          };
+        }
+
+        // Rival simulation (monthly)
+        let updatedRivals = state.rivals;
+        if (totalDays % 30 === 0 && state.rivals.length > 0) {
+          updatedRivals = state.rivals.map(rival => {
+            const monthReturn = simulateRivalReturn(rival, newEconomy.phase);
+            return {
+              ...rival,
+              monthlyReturns: [...rival.monthlyReturns.slice(-23), monthReturn],
+              nav: rival.nav * (1 + monthReturn),
+              aum: rival.aum * (1 + monthReturn * 0.5 + (Math.random() - 0.45) * 0.02),
+            };
+          });
+        }
+
+        // Milestone checks (monthly)
+        let updatedCompletedMilestones = state.completedMilestones;
+        if (totalDays % 7 === 0) {
+          const newMilestones = checkMilestones(
+            state.completedMilestones,
+            updatedPlayer.finances.totalNetWorth,
+            updatedPlayer.finances.cash,
+            state.hedgeFund?.aum || 0,
+            updatedPlayer.ownedBusinesses.length,
+            Object.keys(state.employees).length,
+            updatedPlayer.level,
+            updatedPlayer.stats.reputation,
+            updatedPlayer.skills as unknown as Record<string, number>
+          );
+          if (newMilestones.length > 0) {
+            updatedCompletedMilestones = [...state.completedMilestones, ...newMilestones.map(m => m.id)];
+            for (const m of newMilestones) {
+              get().addNotification({
+                type: m.isWinCondition ? 'achievement' : 'success',
+                title: m.isWinCondition ? `🏆 WIN CONDITION: ${m.title}` : `Milestone: ${m.title}`,
+                message: `${m.description} — Reward: ${m.reward}`,
+                duration: m.isWinCondition ? 0 : 8000,
+              });
+            }
+          }
+        }
+
         // Check achievements
         checkAchievements(updatedPlayer, state, set, get);
 
@@ -512,6 +667,8 @@ export const useGameStore = create<GameStore>()(
           etfs: newEtfs,
           crypto: newCrypto,
           player: updatedPlayer,
+          rivals: updatedRivals,
+          completedMilestones: updatedCompletedMilestones,
         });
       },
 
@@ -1127,6 +1284,129 @@ export const useGameStore = create<GameStore>()(
         get().addNotification({ type: 'info', title: 'Strategy Updated', message: `Fund strategy changed to ${strategy.replace(/_/g, ' ')}.` });
       },
 
+      shortSell: (ticker: string, shares: number) => {
+        const { player, stocks, time } = get();
+        if (!player) return;
+        const stock = stocks[ticker];
+        if (!stock) return;
+        const marginRequired = stock.currentPrice * shares * 0.5; // 50% margin
+        if (player.finances.cash < marginRequired) {
+          get().addNotification({ type: 'error', title: 'Insufficient Margin', message: `Need $${marginRequired.toFixed(2)} as margin collateral (50% of position).` });
+          return;
+        }
+        const existing = player.portfolio.shortPositions?.[ticker];
+        const newShort: import('../types').ShortPosition = {
+          ticker,
+          shares: (existing?.shares || 0) + shares,
+          entryPrice: existing
+            ? ((existing.entryPrice * existing.shares) + (stock.currentPrice * shares)) / (existing.shares + shares)
+            : stock.currentPrice,
+          currentPrice: stock.currentPrice,
+          marginRequired: (existing?.marginRequired || 0) + marginRequired,
+          unrealizedPnL: 0,
+          unrealizedPnLPercent: 0,
+          openDate: time.totalDays,
+          interestAccrued: 0,
+        };
+        const updatedPlayer = {
+          ...player,
+          portfolio: {
+            ...player.portfolio,
+            shortPositions: { ...(player.portfolio.shortPositions || {}), [ticker]: newShort },
+          },
+          finances: { ...player.finances, cash: player.finances.cash - marginRequired },
+        };
+        set({ player: updatedPlayer });
+        get().addNotification({ type: 'success', title: `Short: ${ticker}`, message: `Shorted ${shares} shares @ $${stock.currentPrice.toFixed(2)}. Margin: $${marginRequired.toFixed(0)}` });
+      },
+
+      coverShort: (ticker: string, shares: number) => {
+        const { player, stocks, time } = get();
+        if (!player) return;
+        const stock = stocks[ticker];
+        const short = player.portfolio.shortPositions?.[ticker];
+        if (!stock || !short) return;
+        const coverShares = Math.min(shares, short.shares);
+        const pnl = (short.entryPrice - stock.currentPrice) * coverShares - short.interestAccrued * (coverShares / short.shares);
+        const marginReturn = short.marginRequired * (coverShares / short.shares);
+
+        const newShorts = { ...(player.portfolio.shortPositions || {}) };
+        if (short.shares - coverShares <= 0) {
+          delete newShorts[ticker];
+        } else {
+          newShorts[ticker] = {
+            ...short,
+            shares: short.shares - coverShares,
+            marginRequired: short.marginRequired * ((short.shares - coverShares) / short.shares),
+            interestAccrued: short.interestAccrued * ((short.shares - coverShares) / short.shares),
+          };
+        }
+
+        const tradeRecord: import('../types').TradeRecord = {
+          id: `trade_${Date.now()}`,
+          date: time.totalDays,
+          ticker,
+          action: 'cover',
+          shares: coverShares,
+          price: stock.currentPrice,
+          total: coverShares * stock.currentPrice,
+          pnl,
+        };
+
+        const updatedPlayer = {
+          ...player,
+          portfolio: {
+            ...player.portfolio,
+            shortPositions: newShorts,
+            totalRealizedPnL: player.portfolio.totalRealizedPnL + pnl,
+            tradeHistory: [tradeRecord, ...player.portfolio.tradeHistory.slice(0, 199)],
+          },
+          finances: { ...player.finances, cash: player.finances.cash + marginReturn + pnl },
+        };
+        set({ player: updatedPlayer });
+        get().addNotification({
+          type: pnl >= 0 ? 'success' : 'warning',
+          title: `Covered Short: ${ticker}`,
+          message: `${coverShares} shares @ $${stock.currentPrice.toFixed(2)} | P&L: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`,
+        });
+      },
+
+      placeLimitOrder: (orderData) => {
+        const { player, time } = get();
+        if (!player) return;
+        const order: import('../types').LimitOrder = {
+          ...orderData,
+          id: `order_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          status: 'pending',
+          createdDate: time.totalDays,
+        };
+        const updatedPlayer = {
+          ...player,
+          portfolio: {
+            ...player.portfolio,
+            limitOrders: [...(player.portfolio.limitOrders || []), order],
+          },
+        };
+        set({ player: updatedPlayer });
+        get().addNotification({ type: 'info', title: 'Order Placed', message: `${order.orderType.replace(/_/g, ' ')} ${order.side} ${order.shares}x ${order.ticker}` });
+      },
+
+      cancelLimitOrder: (orderId: string) => {
+        const { player } = get();
+        if (!player) return;
+        const updatedPlayer = {
+          ...player,
+          portfolio: {
+            ...player.portfolio,
+            limitOrders: (player.portfolio.limitOrders || []).map(o =>
+              o.id === orderId ? { ...o, status: 'cancelled' as const } : o
+            ),
+          },
+        };
+        set({ player: updatedPlayer });
+        get().addNotification({ type: 'info', title: 'Order Cancelled', message: 'Limit order cancelled.' });
+      },
+
       launchHedgeFund: (name: string, strategy: string, initialCapital: number) => {
         const { player, time } = get();
         if (!player) return;
@@ -1317,6 +1597,8 @@ export const useGameStore = create<GameStore>()(
         businesses: state.businesses,
         employees: state.employees,
         hedgeFund: state.hedgeFund,
+        rivals: state.rivals,
+        completedMilestones: state.completedMilestones,
         events: state.events,
         achievements: state.achievements,
         isNewGame: state.isNewGame,
