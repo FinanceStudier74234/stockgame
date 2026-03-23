@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #080c14;
+  color: #e2e8f0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0d1421; }
+::-webkit-scrollbar-thumb { background: #253347; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2d3d52; }
+
+.text-gradient-green {
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-gold {
+  background: linear-gradient(135deg, #fbbf24, #f97316);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card {
+  background: #0d1421;
+  border: 1px solid #1a2332;
+  border-radius: 12px;
+}
+
+.card-hover {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.card-hover:hover {
+  border-color: #253347;
+  transform: translateY(-1px);
+}
+
+.positive { color: #10b981; }
+.negative { color: #ef4444; }
+.neutral  { color: #94a3b8; }
+
+@keyframes ticker-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.ticker-scroll {
+  animation: ticker-scroll 80s linear infinite;
+  white-space: nowrap;
+}
+
+.ticker-scroll:hover {
+  animation-play-state: paused;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.notification-enter {
+  animation: slideInRight 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.screen-content {
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-overlay {
+  backdrop-filter: blur(4px);
+  background: rgba(8, 12, 20, 0.85);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+.recharts-cartesian-axis-tick text {
+  fill: #64748b !important;
+  font-size: 11px !important;
+}
+
+.recharts-tooltip-wrapper { outline: none !important; }
