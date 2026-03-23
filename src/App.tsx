@@ -22,6 +22,7 @@ import SkillsScreen from './components/skills/SkillsScreen';
 import BusinessScreen from './components/business/BusinessScreen';
 import TeamScreen from './components/team/TeamScreen';
 import FundScreen from './components/fund/FundScreen';
+import LifestyleScreen from './components/lifestyle/LifestyleScreen';
 import EconomyScreen from './components/economy/EconomyScreen';
 import AchievementsScreen from './components/achievements/AchievementsScreen';
 import SettingsScreen from './components/settings/SettingsScreen';
@@ -48,6 +49,7 @@ function GameContent() {
       case 'business': return <BusinessScreen />;
       case 'team': return <TeamScreen />;
       case 'fund': return <FundScreen />;
+      case 'lifestyle': return <LifestyleScreen />;
       case 'economy': return <EconomyScreen />;
       case 'achievements': return <AchievementsScreen />;
       case 'settings': return <SettingsScreen />;

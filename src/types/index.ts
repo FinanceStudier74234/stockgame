@@ -13,6 +13,7 @@ export type GameScreen =
   | 'business'
   | 'team'
   | 'fund'
+  | 'lifestyle'
   | 'economy'
   | 'achievements'
   | 'settings';

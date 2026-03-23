@@ -2,7 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard, Briefcase, TrendingUp, PieChart, BarChart2,
   GraduationCap, Building2, Users, Building, Globe, Trophy,
-  Settings, Zap, ChevronRight, BookOpen
+  Settings, Zap, ChevronRight, Home
 } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { GameScreen } from '../../types';
@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { screen: 'business', label: 'Business', icon: <Building2 size={16} />, category: 'growth' },
   { screen: 'team', label: 'Team', icon: <Users size={16} />, requiresMechanic: 'team_hiring', category: 'growth' },
   { screen: 'fund', label: 'Fund', icon: <Building size={16} />, requiresMechanic: 'hedge_fund_registered', category: 'elite' },
+  { screen: 'lifestyle', label: 'Lifestyle', icon: <Home size={16} />, category: 'growth' },
   { screen: 'economy', label: 'Economy', icon: <Globe size={16} />, category: 'info' },
   { screen: 'achievements', label: 'Achievements', icon: <Trophy size={16} />, category: 'info' },
   { screen: 'settings', label: 'Settings', icon: <Settings size={16} />, category: 'info' },

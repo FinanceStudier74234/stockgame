@@ -1,5 +1,6 @@
-import { EconomyState, EconomicPhase, Sector } from '../types';
+import { EconomyState, EconomicPhase, Sector, NewsHeadline } from '../types';
 import { gaussianRandom, clamp } from '../utils/math';
+import { generateNewsForDay } from '../data/newsTemplates';
 
 const PHASE_TRANSITIONS: Record<EconomicPhase, { next: EconomicPhase[]; weights: number[]; avgDuration: number }> = {
   recovery:    { next: ['expansion', 'slowdown'],         weights: [0.8, 0.2],       avgDuration: 90 },
@@ -108,6 +109,20 @@ export function updateEconomy(economy: EconomyState): EconomyState {
     90
   );
 
+  // Generate news headlines every 3 days (when economy updates)
+  const newTemplates = generateNewsForDay(newPhase, 0, 2);
+  const newHeadlines: NewsHeadline[] = newTemplates.map((t, i) => ({
+    id: `news_${Date.now()}_${i}`,
+    date: 0,
+    headline: t.headline,
+    category: t.category,
+    sentiment: t.sentiment,
+    affectedSectors: t.affectedSectors,
+    impactMagnitude: t.impactMagnitude,
+  }));
+  // Keep last 15 headlines
+  const updatedHeadlines = [...newHeadlines, ...economy.newsHeadlines].slice(0, 15);
+
   return {
     ...economy,
     phase: newPhase,
@@ -127,6 +142,7 @@ export function updateEconomy(economy: EconomyState): EconomyState {
     goldPrice: parseFloat(newGold.toFixed(2)),
     cryptoSentiment: parseFloat(newCryptoSentiment.toFixed(1)),
     sectorRotation: SECTOR_ROTATION_BY_PHASE[newPhase],
+    newsHeadlines: updatedHeadlines,
   };
 }
 

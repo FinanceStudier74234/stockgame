@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Briefcase, BarChart2, AlertCircle, Star, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Briefcase, BarChart2, Star, Newspaper } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
-import { formatCurrency, formatPercent, formatDate, getTierLabel } from '../../utils/formatting';
+import { formatCurrency, formatPercent, getTierLabel } from '../../utils/formatting';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import StatBar from '../ui/StatBar';
@@ -9,7 +9,7 @@ import MiniChart from '../ui/MiniChart';
 import Button from '../ui/Button';
 
 export default function Dashboard() {
-  const { player, economy, stocks, time, setScreen, events } = useGameStore();
+  const { player, economy, stocks, time, setScreen, businesses, hedgeFund } = useGameStore();
   if (!player) return null;
 
   const netWorth = player.finances.totalNetWorth;
@@ -217,7 +217,7 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Right: Biography, achievements */}
+        {/* Right: Character + news + achievements */}
         <div className="space-y-3">
           {/* Level & XP */}
           <Card padding="sm">
@@ -240,12 +240,67 @@ export default function Dashboard() {
               </div>
               <div className="flex justify-between text-[10px] text-gray-600 mt-1">
                 <span>XP: {player.experiencePoints.toLocaleString()}</span>
-                <span>Next Level: {Math.ceil(player.experiencePoints / 200) * 200}</span>
+                <span>Next: {Math.ceil(player.experiencePoints / 200) * 200}</span>
               </div>
             </div>
           </Card>
 
-          {/* Biography log */}
+          {/* Income streams summary */}
+          {(Object.keys(businesses).length > 0 || hedgeFund) && (
+            <Card title="Income Streams" padding="sm">
+              <div className="space-y-1 px-1 pb-1">
+                {player.currentJob && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">💼 {player.currentJob.title}</span>
+                    <span className="text-accent-green num">+{formatCurrency(player.currentJob.dailyWage * 30, true)}/mo</span>
+                  </div>
+                )}
+                {Object.values(businesses).map(biz => (
+                  <div key={biz.id} className="flex justify-between text-xs">
+                    <span className="text-gray-400">🏢 {biz.name}</span>
+                    <span className={`num ${biz.monthlyProfit >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                      {biz.monthlyProfit >= 0 ? '+' : ''}{formatCurrency(biz.monthlyProfit, true)}/mo
+                    </span>
+                  </div>
+                ))}
+                {hedgeFund && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-400">🏛️ {hedgeFund.name}</span>
+                    <span className="text-gold num">+{formatCurrency(hedgeFund.aum * hedgeFund.managementFee / 12, true)}/mo fees</span>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* News Feed */}
+          <Card title="Market News" padding="sm" headerRight={
+            <Newspaper size={12} className="text-gray-500" />
+          }>
+            <div className="space-y-2 px-1 pb-1">
+              {economy.newsHeadlines.length === 0 ? (
+                <div className="text-xs text-gray-500 text-center py-3">No news yet. Advance time to see market news.</div>
+              ) : economy.newsHeadlines.slice(0, 5).map(news => (
+                <div key={news.id} className={`
+                  p-2 rounded-lg border-l-2 text-[10px] leading-relaxed
+                  ${news.sentiment === 'bullish' ? 'border-l-accent-green bg-accent-green/5' :
+                    news.sentiment === 'bearish' ? 'border-l-accent-red bg-accent-red/5' :
+                    'border-l-dark-300 bg-dark-600'}
+                `}>
+                  <span className={news.sentiment === 'bullish' ? 'text-gray-200' : news.sentiment === 'bearish' ? 'text-gray-200' : 'text-gray-400'}>
+                    {news.headline}
+                  </span>
+                  <div className="flex gap-1 mt-1 flex-wrap">
+                    {news.affectedSectors.slice(0, 2).map(s => (
+                      <span key={s} className="text-[9px] text-gray-600 bg-dark-400 px-1 rounded">{s}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Life Events */}
           <Card title="Life Events" padding="sm">
             <div className="space-y-2 px-1 pb-1">
               {recentBio.length === 0 ? (
@@ -261,31 +316,6 @@ export default function Dashboard() {
                   {event.text}
                 </div>
               ))}
-            </div>
-          </Card>
-
-          {/* Recent achievements */}
-          <Card title="Recent Achievements" padding="sm">
-            <div className="space-y-1.5 px-1 pb-1">
-              {Object.values(useGameStore.getState().achievements)
-                .filter(a => a.dateEarned !== undefined)
-                .sort((a, b) => (b.dateEarned || 0) - (a.dateEarned || 0))
-                .slice(0, 4)
-                .map(ach => (
-                  <div key={ach.id} className="flex items-center gap-2">
-                    <span className="text-base">{ach.icon}</span>
-                    <div>
-                      <div className="text-xs font-semibold text-white">{ach.title}</div>
-                      <div className="text-[10px] text-gray-500">{ach.description}</div>
-                    </div>
-                  </div>
-                ))
-              }
-              {Object.values(useGameStore.getState().achievements).filter(a => a.dateEarned).length === 0 && (
-                <div className="text-xs text-gray-500 text-center py-3">
-                  No achievements yet. Start playing!
-                </div>
-              )}
             </div>
           </Card>
 
