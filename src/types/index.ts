@@ -121,6 +121,7 @@ export interface PlayerFinances {
   savedThisMonth: number;
   lifetimeEarnings: number;
   lifetimeLosses: number;
+  daysInDebt: number;
 }
 
 export interface Player {
@@ -763,6 +764,7 @@ export interface GameState {
   };
   insiderTips: InsiderTip[];
   secStatus: SECStatus;
+  firedMarketShocks: string[];
   achievements: Record<string, Achievement>;
   notifications: GameNotification[];
   ui: {

@@ -26,6 +26,7 @@ export function createPlayerFromArchetype(archetype: Archetype, playerName: stri
       savedThisMonth: 0,
       lifetimeEarnings: 0,
       lifetimeLosses: 0,
+      daysInDebt: 0,
     },
     currentJob: null,
     currentSideHustle: null,

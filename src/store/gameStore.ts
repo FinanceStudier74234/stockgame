@@ -23,6 +23,7 @@ import { blackScholes, updateOptionValue } from '../engine/optionsEngine';
 import { getArchetypeById } from '../data/archetypes';
 import { getJobById, getAvailableJobs } from '../data/jobs';
 import { getRandomEvents } from '../data/events';
+import { MARKET_SHOCKS } from '../data/marketShocks';
 import { getBusinessTemplateById } from '../data/businesses';
 import { createEmployeeFromCandidate, EMPLOYEE_POOL, calculateMonthlyPayroll, calculateTeamBonus } from '../data/employeeRoster';
 import { RIVAL_MANAGERS, simulateRivalReturn } from '../data/rivals';
@@ -126,6 +127,7 @@ const INITIAL_STATE: Omit<GameState, keyof GameActions> = {
   completedMilestones: [] as string[],
   events: { activeEvent: null, eventHistory: [], pendingEvents: [] },
   insiderTips: [],
+  firedMarketShocks: [],
   secStatus: {
     investigationLevel: 0,
     isUnderFormalInvestigation: false,
@@ -217,7 +219,7 @@ export const useGameStore = create<GameStore>()(
         };
 
         // Update economy (slower tick - every 3 days)
-        const newEconomy = totalDays % 3 === 0 ? updateEconomy(state.economy) : state.economy;
+        let newEconomy = totalDays % 3 === 0 ? updateEconomy(state.economy) : state.economy;
 
         // Update markets
         const newStocks = updateAllStocks(state.stocks, newEconomy);
@@ -700,12 +702,30 @@ export const useGameStore = create<GameStore>()(
               const bumpPct = tip.expectedMovePercent / 100;
               const bumpedPrice = stock.currentPrice * (1 + bumpPct);
               newStocks[tip.ticker] = { ...stock, currentPrice: parseFloat(bumpedPrice.toFixed(4)) };
+
+              // Calculate illegal profit from any holdings in this ticker
+              const holding = updatedPlayer.portfolio.holdings[tip.ticker];
+              const illegalProfit = holding
+                ? holding.shares * (bumpedPrice - holding.averageCost)
+                : 0;
+
+              // Record it in the SEC status
+              if (illegalProfit > 0) {
+                updatedSEC = {
+                  ...updatedSEC,
+                  totalIllegalProfits: updatedSEC.totalIllegalProfits + illegalProfit,
+                  scrutinyMultiplier: Math.min(5, updatedSEC.scrutinyMultiplier + 0.1),
+                };
+              }
+
               get().addNotification({
                 type: bumpPct > 0 ? 'success' : 'warning',
                 title: `Insider Event Fired: ${tip.ticker}`,
-                message: `${tip.fullDescription}. ${tip.ticker} moved ${tip.expectedMovePercent > 0 ? '+' : ''}${tip.expectedMovePercent}%.`,
+                message: `${tip.fullDescription}. ${tip.ticker} moved ${tip.expectedMovePercent > 0 ? '+' : ''}${tip.expectedMovePercent}%.${illegalProfit > 0 ? ` Illegal profit: $${illegalProfit.toFixed(0)}` : ''}`,
                 duration: 8000,
               });
+
+              return { ...tip, isRevealed: true, illegalProfitMade: illegalProfit };
             }
             return { ...tip, isRevealed: true };
           }
@@ -768,6 +788,130 @@ export const useGameStore = create<GameStore>()(
               });
             }
           }
+        }
+
+        // ── Market shocks ────────────────────────────────────────────────────
+        let firedMarketShocks = state.firedMarketShocks || [];
+        for (const shock of MARKET_SHOCKS) {
+          if (shock.isOneTime && firedMarketShocks.includes(shock.id)) continue;
+          if (shock.allowedPhases && !shock.allowedPhases.includes(newEconomy.phase)) continue;
+          if (Math.random() > shock.probability) continue;
+
+          // Apply stock price multipliers
+          for (const rule of shock.stockRules) {
+            if (rule.specificTickers) {
+              for (const t of rule.specificTickers) {
+                if (newStocks[t]) {
+                  newStocks[t] = {
+                    ...newStocks[t],
+                    currentPrice: parseFloat((newStocks[t].currentPrice * rule.multiplier).toFixed(4)),
+                  };
+                }
+              }
+            } else if (rule.sector && rule.sector !== 'all') {
+              for (const t of Object.keys(newStocks)) {
+                if (newStocks[t].sector === rule.sector) {
+                  newStocks[t] = {
+                    ...newStocks[t],
+                    currentPrice: parseFloat((newStocks[t].currentPrice * rule.multiplier).toFixed(4)),
+                  };
+                }
+              }
+            } else if (rule.sector === 'all') {
+              for (const t of Object.keys(newStocks)) {
+                newStocks[t] = {
+                  ...newStocks[t],
+                  currentPrice: parseFloat((newStocks[t].currentPrice * rule.multiplier).toFixed(4)),
+                };
+              }
+            }
+          }
+          // Apply crypto multiplier
+          if (shock.cryptoMultiplier) {
+            for (const t of Object.keys(newCrypto)) {
+              newCrypto[t] = {
+                ...newCrypto[t],
+                currentPrice: parseFloat((newCrypto[t].currentPrice * shock.cryptoMultiplier).toFixed(4)),
+              };
+            }
+          }
+          // Update economy sentiment + vix
+          const newSentiment = Math.max(-100, Math.min(100, newEconomy.marketSentiment + shock.sentimentShock));
+          const newVix = Math.min(100, (newEconomy.vixLevel || 20) + shock.vixBump);
+          const shockedEconomy = {
+            ...newEconomy,
+            marketSentiment: newSentiment,
+            vixLevel: newVix,
+            ...(shock.forcePhase ? { phase: shock.forcePhase } : {}),
+          };
+          // eslint-disable-next-line no-param-reassign
+          (newEconomy as any) = shockedEconomy;
+
+          if (shock.isOneTime) {
+            firedMarketShocks = [...firedMarketShocks, shock.id];
+          }
+          get().addNotification({
+            type: 'error',
+            title: `⚡ ${shock.name}`,
+            message: shock.headline,
+            duration: 0,
+          });
+          // Only one shock per day
+          break;
+        }
+
+        // ── daysInDebt + broke spiral ─────────────────────────────────────
+        if (updatedPlayer.finances.cash < 0) {
+          const prevDaysInDebt = updatedPlayer.finances.daysInDebt || 0;
+          const newDaysInDebt = prevDaysInDebt + 1;
+          updatedPlayer = {
+            ...updatedPlayer,
+            finances: { ...updatedPlayer.finances, daysInDebt: newDaysInDebt },
+          };
+
+          // Every 30 days in debt: force a payday loan
+          if (newDaysInDebt > 0 && newDaysInDebt % 30 === 0) {
+            const loanAmount = 2000;
+            const paydayDebt: DebtItem = {
+              id: `payday_${totalDays}`,
+              type: 'personal_loan',
+              name: 'Payday Loan (35% APR)',
+              principal: loanAmount,
+              currentBalance: loanAmount,
+              interestRate: 0.35,
+              minimumPayment: loanAmount * 0.05,
+              monthlyPayment: loanAmount * 0.08,
+              startDate: totalDays,
+              isMarginLoan: false,
+            };
+            updatedPlayer = {
+              ...updatedPlayer,
+              finances: {
+                ...updatedPlayer.finances,
+                cash: updatedPlayer.finances.cash + loanAmount,
+                totalDebt: updatedPlayer.finances.totalDebt + loanAmount,
+              },
+              debtItems: [...updatedPlayer.debtItems, paydayDebt],
+              stats: {
+                ...updatedPlayer.stats,
+                stress: Math.min(100, updatedPlayer.stats.stress + 15),
+                reputation: Math.max(0, updatedPlayer.stats.reputation - 5),
+                confidence: Math.max(0, updatedPlayer.stats.confidence - 5),
+              },
+            };
+            get().addNotification({
+              type: 'error',
+              title: 'Payday Loan Forced',
+              message: `You're out of money! A $${loanAmount.toLocaleString()} payday loan at 35% APR was taken automatically. Get out of the hole fast.`,
+              duration: 0,
+            });
+          }
+        } else if ((updatedPlayer.finances.daysInDebt || 0) > 0) {
+          // Reset daysInDebt once cash is positive again
+          updatedPlayer = {
+            ...updatedPlayer,
+            finances: { ...updatedPlayer.finances, daysInDebt: 0 },
+          };
         }
 
         // Daily SEC investigation pressure
@@ -850,6 +994,7 @@ export const useGameStore = create<GameStore>()(
           completedMilestones: updatedCompletedMilestones,
           insiderTips: updatedInsiderTips,
           secStatus: updatedSEC,
+          firedMarketShocks,
         });
       },
 
@@ -1868,6 +2013,7 @@ export const useGameStore = create<GameStore>()(
         achievements: state.achievements,
         insiderTips: state.insiderTips,
         secStatus: state.secStatus,
+        firedMarketShocks: state.firedMarketShocks,
         isNewGame: state.isNewGame,
         saveDate: state.saveDate,
         gameVersion: state.gameVersion,
