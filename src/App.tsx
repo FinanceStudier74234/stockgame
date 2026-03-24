@@ -29,6 +29,7 @@ import SettingsScreen from './components/settings/SettingsScreen';
 import RivalsScreen from './components/rivals/RivalsScreen';
 import QuantScreen from './components/quant/QuantScreen';
 import MilestonesScreen from './components/milestones/MilestonesScreen';
+import InsiderScreen from './components/insider/InsiderScreen';
 
 // Events
 import EventModal from './components/events/EventModal';
@@ -59,6 +60,7 @@ function GameContent() {
       case 'milestones': return <MilestonesScreen />;
       case 'achievements': return <AchievementsScreen />;
       case 'settings': return <SettingsScreen />;
+      case 'insider': return <InsiderScreen />;
       default: return <Dashboard />;
     }
   };

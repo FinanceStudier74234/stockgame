@@ -2,7 +2,7 @@ import React from 'react';
 import {
   LayoutDashboard, Briefcase, TrendingUp, PieChart, BarChart2,
   GraduationCap, Building2, Users, Building, Globe, Trophy,
-  Settings, Zap, ChevronRight, Home, Swords, Brain, Target
+  Settings, Zap, ChevronRight, Home, Swords, Brain, Target, EyeOff
 } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { GameScreen } from '../../types';
@@ -30,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { screen: 'fund', label: 'Fund', icon: <Building size={16} />, requiresMechanic: 'hedge_fund_registered', category: 'elite' },
   { screen: 'rivals', label: 'Rivals', icon: <Swords size={16} />, requiresMechanic: 'hedge_fund_registered', category: 'elite' },
   { screen: 'quant', label: 'Quant Lab', icon: <Brain size={16} />, requiresMechanic: 'quant_trading', category: 'elite' },
+  { screen: 'insider', label: 'Underground', icon: <EyeOff size={16} />, category: 'elite' },
   { screen: 'lifestyle', label: 'Lifestyle', icon: <Home size={16} />, category: 'growth' },
   { screen: 'milestones', label: 'Milestones', icon: <Target size={16} />, category: 'info' },
   { screen: 'economy', label: 'Economy', icon: <Globe size={16} />, category: 'info' },
@@ -46,11 +47,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function Sidebar() {
-  const { ui, setScreen, player } = useGameStore();
+  const { ui, setScreen, player, insiderTips, secStatus } = useGameStore();
   if (!player) return null;
 
   const netWorth = player.finances.totalNetWorth;
   const tier = getTierLabel(netWorth);
+
+  const activeInsiderTips = (insiderTips || []).filter((t: { isExpired: boolean; isRevealed: boolean }) => !t.isExpired && !t.isRevealed).length;
+  const secAlert = (secStatus?.investigationLevel || 0) >= 40;
 
   const grouped = NAV_ITEMS.reduce<Record<string, NavItem[]>>((acc, item) => {
     const cat = item.category || 'main';
@@ -111,20 +115,35 @@ export default function Sidebar() {
               )}
               {visibleItems.map(item => {
                 const isActive = ui.currentScreen === item.screen;
+                const isInsider = item.screen === 'insider';
+                const insiderBadge = isInsider && activeInsiderTips > 0 ? String(activeInsiderTips) : null;
+                const insiderWarning = isInsider && secAlert;
                 return (
                   <button
                     key={item.screen}
-                    onClick={() => setScreen(item.screen)}
+                    onClick={() => setScreen(item.screen as GameScreen)}
                     className={`
                       w-full flex items-center gap-3 px-3 py-2 text-left transition-all duration-150
                       ${isActive
                         ? 'bg-accent-blue/15 text-accent-blue border-r-2 border-accent-blue'
-                        : 'text-gray-400 hover:bg-dark-600 hover:text-gray-200'}
+                        : isInsider && secAlert
+                          ? 'text-accent-red hover:bg-accent-red/10'
+                          : 'text-gray-400 hover:bg-dark-600 hover:text-gray-200'}
                     `}
                   >
-                    <span className={isActive ? 'text-accent-blue' : 'text-gray-500'}>{item.icon}</span>
+                    <span className={isActive ? 'text-accent-blue' : isInsider && secAlert ? 'text-accent-red' : 'text-gray-500'}>{item.icon}</span>
                     <span className="text-xs font-medium">{item.label}</span>
-                    {item.badge && (
+                    {insiderBadge && !isActive && (
+                      <span className="ml-auto text-[9px] bg-accent-yellow text-dark-900 px-1.5 py-0.5 rounded-full font-bold">
+                        {insiderBadge}
+                      </span>
+                    )}
+                    {insiderWarning && !insiderBadge && !isActive && (
+                      <span className="ml-auto text-[9px] bg-accent-red text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse">
+                        SEC
+                      </span>
+                    )}
+                    {item.badge && !isInsider && (
                       <span className="ml-auto text-[9px] bg-accent-red text-white px-1.5 py-0.5 rounded-full font-bold">
                         {item.badge}
                       </span>

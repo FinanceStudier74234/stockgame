@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   GameState, GameScreen, Player, Stock, Business, Employee, HedgeFund, LimitedPartner,
-  GameNotification, Portfolio, Job, DebtItem, AssetType, HousingLevel, OptionContract
+  GameNotification, Portfolio, Job, DebtItem, AssetType, HousingLevel, OptionContract,
+  InsiderTip, SECStatus
 } from '../types';
 import { createInitialStocks, createInitialETFs, createInitialCrypto } from '../data/stocks';
 import { createInitialEconomy, updateEconomy } from '../engine/economyEngine';
@@ -94,6 +95,11 @@ interface GameActions {
   dismissNotification: (id: string) => void;
   addNotification: (notification: Omit<GameNotification, 'id' | 'timestamp' | 'isRead'>) => void;
 
+  // Insider trading
+  actOnInsiderTip: (tipId: string) => void;
+  hireLawyer: () => void;
+  destroyEvidence: () => void;
+
   // Save
   saveGame: () => void;
 }
@@ -119,6 +125,18 @@ const INITIAL_STATE: Omit<GameState, keyof GameActions> = {
   rivals: RIVAL_MANAGERS.map(r => ({ ...r })),
   completedMilestones: [] as string[],
   events: { activeEvent: null, eventHistory: [], pendingEvents: [] },
+  insiderTips: [],
+  secStatus: {
+    investigationLevel: 0,
+    isUnderFormalInvestigation: false,
+    isConvicted: false,
+    totalIllegalProfits: 0,
+    tipsActedOn: 0,
+    scrutinyMultiplier: 1,
+    lastFineAmount: 0,
+    hasLawyer: false,
+    lawyerDaysRemaining: 0,
+  },
   achievements: createAchievementsMap(),
   notifications: [],
   ui: { currentScreen: 'dashboard', selectedStock: null, isMenuOpen: false, isPaused: false, tutorialStep: 0 },
@@ -660,6 +678,167 @@ export const useGameStore = create<GameStore>()(
         // Check achievements
         checkAchievements(updatedPlayer, state, set, get);
 
+        // ── Insider trading: SEC investigation tracking ──────────────────
+        let updatedInsiderTips = state.insiderTips;
+        let updatedSEC = state.secStatus;
+
+        // Lawyer tick
+        if (updatedSEC.hasLawyer && updatedSEC.lawyerDaysRemaining > 0) {
+          updatedSEC = {
+            ...updatedSEC,
+            lawyerDaysRemaining: updatedSEC.lawyerDaysRemaining - 1,
+            hasLawyer: updatedSEC.lawyerDaysRemaining > 1,
+          };
+        }
+
+        // Reveal tips whose event day has arrived
+        updatedInsiderTips = updatedInsiderTips.map(tip => {
+          if (!tip.isRevealed && totalDays >= tip.eventFiringDay) {
+            const stock = newStocks[tip.ticker];
+            if (stock && tip.isActedOn) {
+              // Apply the actual move to the stock (adds extra volatility on event day)
+              const bumpPct = tip.expectedMovePercent / 100;
+              const bumpedPrice = stock.currentPrice * (1 + bumpPct);
+              newStocks[tip.ticker] = { ...stock, currentPrice: parseFloat(bumpedPrice.toFixed(4)) };
+              get().addNotification({
+                type: bumpPct > 0 ? 'success' : 'warning',
+                title: `Insider Event Fired: ${tip.ticker}`,
+                message: `${tip.fullDescription}. ${tip.ticker} moved ${tip.expectedMovePercent > 0 ? '+' : ''}${tip.expectedMovePercent}%.`,
+                duration: 8000,
+              });
+            }
+            return { ...tip, isRevealed: true };
+          }
+          return tip;
+        });
+
+        // Expire tips older than 60 days past event
+        updatedInsiderTips = updatedInsiderTips.map(tip =>
+          (!tip.isExpired && totalDays > tip.eventFiringDay + 60) ? { ...tip, isExpired: true } : tip
+        );
+
+        // Generate new insider tip every 14 days if network stat is high enough
+        if (totalDays % 14 === 0 && updatedPlayer.stats.network >= 20) {
+          const tipChance = Math.min(0.7, 0.15 + updatedPlayer.stats.network / 200);
+          if (Math.random() < tipChance) {
+            const activeTickers = Object.keys(newStocks).filter(t => newStocks[t].currentPrice > 5);
+            if (activeTickers.length > 0) {
+              const ticker = activeTickers[Math.floor(Math.random() * activeTickers.length)];
+              const stock = newStocks[ticker];
+              const tipTemplates: Array<{
+                tipType: InsiderTip['tipType']; hint: string; fullDescription: string;
+                move: number; risk: number; source: string;
+              }> = [
+                { tipType: 'merger_acquisition', hint: `Unusual activity around ${ticker}. A contact at a bulge-bracket bank is acting strange.`, fullDescription: `${stock.name} acquired by strategic buyer`, move: 25 + Math.random() * 20, risk: 75, source: 'Goldman contact' },
+                { tipType: 'earnings_beat', hint: `A CFO acquaintance dropped hints ${ticker}'s quarter is "blowing out estimates."`, fullDescription: `${stock.name} crushed earnings — EPS 40%+ above consensus`, move: 10 + Math.random() * 15, risk: 45, source: 'CFO acquaintance' },
+                { tipType: 'earnings_miss', hint: `Word is ${ticker} is going to disappoint the street badly next week.`, fullDescription: `${stock.name} massive earnings miss — revenue down YoY`, move: -(12 + Math.random() * 18), risk: 50, source: 'IR contact' },
+                { tipType: 'drug_approval', hint: `Someone at the FDA is very upbeat about ${ticker}'s upcoming decision.`, fullDescription: `${stock.name} receives FDA approval for flagship drug`, move: 40 + Math.random() * 30, risk: 60, source: 'FDA consultant' },
+                { tipType: 'drug_rejection', hint: `Hear ${ticker}'s drug trial data is worse than expected. Much worse.`, fullDescription: `${stock.name} drug rejected by FDA — clinical failure`, move: -(30 + Math.random() * 30), risk: 65, source: 'Lab researcher' },
+                { tipType: 'contract_win', hint: `${ticker} is about to announce a huge government contract. Source: procurement officer.`, fullDescription: `${stock.name} wins multi-billion government contract`, move: 15 + Math.random() * 12, risk: 40, source: 'Gov. procurement' },
+                { tipType: 'fraud_discovered', hint: `Something's seriously wrong with ${ticker}'s books. Short interest is quietly building.`, fullDescription: `${stock.name} under SEC investigation for accounting fraud`, move: -(35 + Math.random() * 25), risk: 70, source: 'Short seller contact' },
+                { tipType: 'buyout', hint: `Private equity is circling ${ticker}. Deal could be announced any day.`, fullDescription: `${stock.name} taken private in LBO at significant premium`, move: 20 + Math.random() * 25, risk: 80, source: 'PE analyst friend' },
+                { tipType: 'ceo_resignation', hint: `The CEO of ${ticker} is having "health issues." Expect an announcement soon.`, fullDescription: `${stock.name} CEO unexpectedly resigns amid board pressure`, move: -(8 + Math.random() * 15), risk: 35, source: 'Board member contact' },
+                { tipType: 'regulatory_approval', hint: `${ticker}'s regulatory hurdle is about to be cleared. Regulatory contact very confident.`, fullDescription: `${stock.name} receives key regulatory clearance`, move: 12 + Math.random() * 18, risk: 55, source: 'Regulatory consultant' },
+              ];
+              const template = tipTemplates[Math.floor(Math.random() * tipTemplates.length)];
+              const eventFiringDay = totalDays + 7 + Math.floor(Math.random() * 14);
+              const newTip: InsiderTip = {
+                id: `tip_${totalDays}_${ticker}`,
+                ticker,
+                stockName: stock.name,
+                tipType: template.tipType,
+                hint: template.hint,
+                fullDescription: template.fullDescription,
+                source: template.source,
+                expectedMovePercent: parseFloat(template.move.toFixed(1)),
+                eventFiringDay,
+                createdDay: totalDays,
+                investigationRiskBase: template.risk,
+                isActedOn: false,
+                isExpired: false,
+                isRevealed: false,
+                illegalProfitMade: 0,
+              };
+              updatedInsiderTips = [...updatedInsiderTips.slice(-19), newTip];
+              get().addNotification({
+                type: 'warning',
+                title: 'New Insider Tip',
+                message: `A contact has information. Check your Underground network.`,
+                duration: 6000,
+              });
+            }
+          }
+        }
+
+        // Daily SEC investigation pressure
+        const actedTips = updatedInsiderTips.filter(t => t.isActedOn && !t.isExpired);
+        if (actedTips.length > 0 || updatedSEC.investigationLevel > 0) {
+          const lawyerReduction = updatedSEC.hasLawyer ? 0.4 : 1.0;
+          // Each acted tip adds small daily pressure
+          const dailyRisk = actedTips.reduce((sum, t) => sum + t.investigationRiskBase * 0.01, 0);
+          const dailyPressure = dailyRisk * updatedSEC.scrutinyMultiplier * lawyerReduction;
+          // Natural decay when clean
+          const decay = actedTips.length === 0 ? 0.5 : 0;
+          let newLevel = Math.max(0, Math.min(100, updatedSEC.investigationLevel + dailyPressure - decay));
+
+          // Threshold notifications
+          if (updatedSEC.investigationLevel < 40 && newLevel >= 40) {
+            get().addNotification({
+              type: 'warning',
+              title: 'SEC Informal Inquiry',
+              message: 'The SEC has flagged unusual trading patterns around your account. Consider slowing down.',
+              duration: 10000,
+            });
+          }
+          if (updatedSEC.investigationLevel < 70 && newLevel >= 70) {
+            updatedSEC = { ...updatedSEC, isUnderFormalInvestigation: true };
+            get().addNotification({
+              type: 'error',
+              title: 'FORMAL SEC INVESTIGATION OPENED',
+              message: 'The SEC has formally opened an investigation into your trading activity. Get a lawyer NOW.',
+              duration: 0,
+            });
+          }
+          if (!updatedSEC.isConvicted && newLevel >= 95) {
+            // Charges filed — calculate fine
+            const fine = Math.max(50000, updatedSEC.totalIllegalProfits * 3 + 100000);
+            const newCash = Math.max(-fine, updatedPlayer.finances.cash - fine);
+            updatedPlayer = {
+              ...updatedPlayer,
+              finances: { ...updatedPlayer.finances, cash: newCash },
+              stats: {
+                ...updatedPlayer.stats,
+                reputation: Math.max(0, updatedPlayer.stats.reputation - 40),
+                stress: Math.min(100, updatedPlayer.stats.stress + 50),
+                confidence: Math.max(0, updatedPlayer.stats.confidence - 30),
+              },
+              biographyEvents: [...updatedPlayer.biographyEvents, {
+                date: totalDays,
+                text: `SEC charges filed. Paid $${fine.toLocaleString()} in fines and disgorgement. Reputation destroyed.`,
+                type: 'bad' as const,
+              }],
+            };
+            updatedSEC = {
+              ...updatedSEC,
+              isConvicted: true,
+              investigationLevel: 0,
+              isUnderFormalInvestigation: false,
+              lastFineAmount: fine,
+              scrutinyMultiplier: updatedSEC.scrutinyMultiplier + 1,
+              totalIllegalProfits: 0,
+            };
+            updatedInsiderTips = updatedInsiderTips.map(t => ({ ...t, isActedOn: false, isExpired: true }));
+            get().addNotification({
+              type: 'error',
+              title: 'SEC CHARGES FILED — CONVICTED',
+              message: `You have been charged with insider trading. Fine: $${fine.toLocaleString()}. Reputation -40. Your record is tainted permanently.`,
+              duration: 0,
+            });
+          } else {
+            updatedSEC = { ...updatedSEC, investigationLevel: newLevel };
+          }
+        }
+
         set({
           time: newTime,
           economy: newEconomy,
@@ -669,6 +848,8 @@ export const useGameStore = create<GameStore>()(
           player: updatedPlayer,
           rivals: updatedRivals,
           completedMilestones: updatedCompletedMilestones,
+          insiderTips: updatedInsiderTips,
+          secStatus: updatedSEC,
         });
       },
 
@@ -1582,6 +1763,90 @@ export const useGameStore = create<GameStore>()(
         set({ saveDate: Date.now() });
         get().addNotification({ type: 'info', title: 'Game Saved', message: 'Your progress has been saved.' });
       },
+
+      actOnInsiderTip: (tipId: string) => {
+        const state = get();
+        if (!state.player) return;
+        const tip = state.insiderTips.find(t => t.id === tipId);
+        if (!tip || tip.isActedOn || tip.isExpired || tip.isRevealed) {
+          get().addNotification({ type: 'warning', title: 'Tip Unavailable', message: 'This tip is no longer actionable.' });
+          return;
+        }
+        const updatedTips = state.insiderTips.map(t =>
+          t.id === tipId ? { ...t, isActedOn: true } : t
+        );
+        const riskBump = tip.investigationRiskBase * 0.15;
+        const newSEC: SECStatus = {
+          ...state.secStatus,
+          tipsActedOn: state.secStatus.tipsActedOn + 1,
+          investigationLevel: Math.min(90, state.secStatus.investigationLevel + riskBump),
+        };
+        set({ insiderTips: updatedTips, secStatus: newSEC });
+        // Navigate to trading for this stock
+        get().setScreen('trading');
+        get().selectStock(tip.ticker);
+        get().addNotification({
+          type: 'warning',
+          title: 'Tip Activated',
+          message: `You're acting on inside information about ${tip.ticker}. Trade carefully — the SEC is always watching.`,
+          duration: 8000,
+        });
+      },
+
+      hireLawyer: () => {
+        const state = get();
+        if (!state.player) return;
+        const cost = 25000;
+        if (state.player.finances.cash < cost) {
+          get().addNotification({ type: 'error', title: 'Insufficient Funds', message: `Hiring a securities lawyer costs $${cost.toLocaleString()}.` });
+          return;
+        }
+        set({
+          player: {
+            ...state.player,
+            finances: { ...state.player.finances, cash: state.player.finances.cash - cost },
+          },
+          secStatus: {
+            ...state.secStatus,
+            hasLawyer: true,
+            lawyerDaysRemaining: 60,
+            investigationLevel: Math.max(0, state.secStatus.investigationLevel - 15),
+          },
+        });
+        get().addNotification({
+          type: 'success',
+          title: 'Lawyer Hired',
+          message: 'Your securities attorney is on retainer for 60 days. SEC investigation risk reduced by 40%.',
+          duration: 8000,
+        });
+      },
+
+      destroyEvidence: () => {
+        const state = get();
+        if (!state.player) return;
+        const cost = 15000;
+        if (state.player.finances.cash < cost) {
+          get().addNotification({ type: 'error', title: 'Insufficient Funds', message: `Evidence destruction costs $${cost.toLocaleString()} in "consulting fees."` });
+          return;
+        }
+        const reduction = 10 + Math.random() * 20;
+        set({
+          player: {
+            ...state.player,
+            finances: { ...state.player.finances, cash: state.player.finances.cash - cost },
+          },
+          secStatus: {
+            ...state.secStatus,
+            investigationLevel: Math.max(0, state.secStatus.investigationLevel - reduction),
+          },
+        });
+        get().addNotification({
+          type: 'info',
+          title: 'Evidence Cleared',
+          message: `Trading records "cleaned up." Investigation level reduced by ${reduction.toFixed(0)} points.`,
+          duration: 6000,
+        });
+      },
     }),
     {
       name: 'stockgame-save',
@@ -1601,6 +1866,8 @@ export const useGameStore = create<GameStore>()(
         completedMilestones: state.completedMilestones,
         events: state.events,
         achievements: state.achievements,
+        insiderTips: state.insiderTips,
+        secStatus: state.secStatus,
         isNewGame: state.isNewGame,
         saveDate: state.saveDate,
         gameVersion: state.gameVersion,

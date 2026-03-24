@@ -19,7 +19,8 @@ export type GameScreen =
   | 'quant'
   | 'milestones'
   | 'achievements'
-  | 'settings';
+  | 'settings'
+  | 'insider';
 
 export type EconomicPhase =
   | 'boom'
@@ -561,6 +562,61 @@ export interface NewsHeadline {
 }
 
 // ============================================================
+// INSIDER TRADING TYPES
+// ============================================================
+
+export type InsiderTipType =
+  | 'merger_acquisition'
+  | 'earnings_beat'
+  | 'earnings_miss'
+  | 'drug_approval'
+  | 'drug_rejection'
+  | 'contract_win'
+  | 'fraud_discovered'
+  | 'buyout'
+  | 'ceo_resignation'
+  | 'regulatory_approval'
+  | 'patent_granted';
+
+export interface InsiderTip {
+  id: string;
+  ticker: string;
+  stockName: string;
+  tipType: InsiderTipType;
+  /** Vague hint shown to player */
+  hint: string;
+  /** Full reveal after event fires */
+  fullDescription: string;
+  source: string;
+  /** Expected price move % (+ or -) */
+  expectedMovePercent: number;
+  /** Days after createdDay that the event fires */
+  eventFiringDay: number;
+  createdDay: number;
+  /** 0-100: how traceable this tip is */
+  investigationRiskBase: number;
+  isActedOn: boolean;
+  isExpired: boolean;
+  isRevealed: boolean;
+  illegalProfitMade: number;
+}
+
+export interface SECStatus {
+  /** 0-100. ≥40 informal inquiry, ≥70 formal investigation, ≥95 charges */
+  investigationLevel: number;
+  isUnderFormalInvestigation: boolean;
+  isConvicted: boolean;
+  totalIllegalProfits: number;
+  tipsActedOn: number;
+  /** Multiplier on daily risk while tips have been acted on */
+  scrutinyMultiplier: number;
+  /** Set when convicted, fine amount */
+  lastFineAmount: number;
+  hasLawyer: boolean;
+  lawyerDaysRemaining: number;
+}
+
+// ============================================================
 // EVENT TYPES
 // ============================================================
 
@@ -705,6 +761,8 @@ export interface GameState {
     eventHistory: string[];
     pendingEvents: string[];
   };
+  insiderTips: InsiderTip[];
+  secStatus: SECStatus;
   achievements: Record<string, Achievement>;
   notifications: GameNotification[];
   ui: {
