@@ -42,6 +42,11 @@ export default function ActionBar() {
           <Briefcase size={12} />
           <span>Work</span>
           {player.currentJob && <span className="text-[10px] opacity-70">+${player.currentJob.dailyWage.toFixed(0)}</span>}
+          {(player.workStreak || 0) >= 3 && (
+            <span className={`text-[9px] font-bold px-1 rounded ${player.workStreak >= 10 ? 'bg-accent-yellow/30 text-accent-yellow' : 'bg-accent-green/30 text-accent-green'}`}>
+              🔥{player.workStreak}
+            </span>
+          )}
         </button>
 
         <button

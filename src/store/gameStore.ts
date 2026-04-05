@@ -1201,69 +1201,188 @@ export const useGameStore = create<GameStore>()(
       },
 
       doWork: () => {
-        const { player } = get();
+        const { player, time } = get();
         if (!player || !player.currentJob) {
-          get().addNotification({ type: 'warning', title: 'No Job', message: 'You don\'t have a job! Apply for one first.' });
+          get().addNotification({ type: 'warning', title: 'No Job', message: 'Apply for a job in the Career tab first.' });
           return;
         }
         if (player.stats.energy < 10) {
-          get().addNotification({ type: 'warning', title: 'Too Tired', message: 'You\'re exhausted! Rest first.' });
+          get().addNotification({ type: 'warning', title: 'Exhausted', message: 'You\'re too tired to work. Rest up first.' });
           return;
         }
-        const updatedPlayer = applyJobWork(player, player.currentJob);
+        const currentDay = time.totalDays;
+        // Streak: maintained if last worked was yesterday
+        const newStreak = player.lastWorkedDay === currentDay - 1 ? (player.workStreak + 1) : 1;
+
+        // RNG variance: ~15% exceptional, ~12% rough day, rest normal
+        const roll = Math.random();
+        const WORK_FLAVORS_GREAT = [
+          'Client praised your analysis.', 'Landed a key deal today.', 'Boss noticed your extra effort.',
+          'Crushed it in the team meeting.', 'Discovered an inefficiency that saved the firm money.',
+        ];
+        const WORK_FLAVORS_NORMAL = [
+          'Another productive day.', 'Steady progress on all fronts.', 'Nothing spectacular, but solid work.',
+          'Met every deadline today.', 'Good day — kept your head down and delivered.',
+        ];
+        const WORK_FLAVORS_BAD = [
+          'Difficult client today.', 'Meeting ran 3 hours over. Drained.', 'Unexpected setback slowed you down.',
+          'Manager was difficult. Stress is up.', 'Made a small error that cost you time.',
+        ];
+        let wageMultiplier = 1.0;
+        let notifType: 'success' | 'info' | 'warning' = 'success';
+        let flavor = '';
+        let title = 'Work Done';
+        if (roll < 0.13) {
+          wageMultiplier = 1.75;
+          flavor = WORK_FLAVORS_GREAT[Math.floor(Math.random() * WORK_FLAVORS_GREAT.length)];
+          notifType = 'success';
+          title = '🌟 Great Day!';
+        } else if (roll < 0.25) {
+          wageMultiplier = 0.65;
+          flavor = WORK_FLAVORS_BAD[Math.floor(Math.random() * WORK_FLAVORS_BAD.length)];
+          notifType = 'warning';
+          title = '😤 Rough Day';
+        } else {
+          flavor = WORK_FLAVORS_NORMAL[Math.floor(Math.random() * WORK_FLAVORS_NORMAL.length)];
+        }
+        const effectiveWage = player.currentJob.dailyWage * wageMultiplier;
+
+        // Streak milestone rewards
+        let streakBonus = 0;
+        let streakMsg = '';
+        if (newStreak === 5)  { streakBonus = Math.round(player.currentJob.dailyWage * 3); streakMsg = ` 🔥 5-day streak! +$${streakBonus} bonus!`; }
+        if (newStreak === 10) { streakBonus = Math.round(player.currentJob.dailyWage * 8); streakMsg = ` 🔥 10-day streak! +$${streakBonus} bonus!`; }
+        if (newStreak === 20) { streakBonus = Math.round(player.currentJob.dailyWage * 20); streakMsg = ` 🔥🔥 20-day streak! +$${streakBonus} bonus!`; }
+        if (newStreak > 20 && newStreak % 30 === 0) { streakBonus = Math.round(player.currentJob.dailyWage * 30); streakMsg = ` 🔥🔥🔥 ${newStreak}-day streak! +$${streakBonus}!`; }
+
+        let updatedPlayer = applyJobWork(player, { ...player.currentJob, dailyWage: effectiveWage });
+        updatedPlayer = {
+          ...updatedPlayer,
+          workStreak: newStreak,
+          lastWorkedDay: currentDay,
+          finances: { ...updatedPlayer.finances, cash: updatedPlayer.finances.cash + streakBonus },
+        };
         set({ player: updatedPlayer });
         get().advanceDay();
         get().addNotification({
-          type: 'success',
-          title: 'Work Done',
-          message: `Earned $${player.currentJob.dailyWage.toFixed(2)} today. +${player.currentJob.experiencePerDay} XP`,
+          type: notifType,
+          title,
+          message: `$${effectiveWage.toFixed(0)} earned${wageMultiplier > 1 ? ` (${Math.round(wageMultiplier * 100)}%!)` : ''}. ${flavor}${streakMsg}`,
         });
       },
 
       doRest: () => {
         const { player } = get();
         if (!player) return;
+        const REST_FLAVORS = [
+          'You slept soundly. Ready for tomorrow.',
+          'Caught up on some reading between naps.',
+          'Long walk and an early night. Refreshed.',
+          'Ordered delivery and watched the news. Recharged.',
+          'Quick power nap turned into a 10-hour sleep. Worth it.',
+        ];
         const updatedPlayer = applyRest(player);
         set({ player: updatedPlayer });
         get().advanceDay();
-        get().addNotification({ type: 'info', title: 'Rested', message: 'Energy restored. +30 Energy, -15 Stress' });
+        get().addNotification({
+          type: 'info',
+          title: 'Rested',
+          message: `+30 Energy, -15 Stress. ${REST_FLAVORS[Math.floor(Math.random() * REST_FLAVORS.length)]}`,
+        });
       },
 
       doStudy: (skillId: string) => {
         const { player } = get();
         if (!player) return;
         if (player.stats.energy < 15) {
-          get().addNotification({ type: 'warning', title: 'Too Tired', message: 'Rest before studying.' });
+          get().addNotification({ type: 'warning', title: 'Too Tired', message: 'Rest before studying — you can\'t focus like this.' });
           return;
         }
-        const updatedPlayer = applyStudy(player, skillId as any, 4);
+        const SKILL_LABELS: Record<string, string> = {
+          finance: 'Finance', chartAnalysis: 'Chart Analysis', tradingPsychology: 'Trading Psychology',
+          economics: 'Economics', options: 'Options', coding: 'Coding',
+          entrepreneurship: 'Entrepreneurship', macroAnalysis: 'Macro Analysis',
+        };
+        const isBreakthrough = Math.random() < 0.12; // 12% chance of 3× gain
+        const multiplier = isBreakthrough ? 3 : 1;
+        const updatedPlayer = applyStudy(player, skillId as any, 4 * multiplier);
         set({ player: updatedPlayer });
         get().advanceDay();
         const gain = (updatedPlayer.skills[skillId as keyof typeof updatedPlayer.skills] || 0) -
           (player.skills[skillId as keyof typeof player.skills] || 0);
-        get().addNotification({ type: 'info', title: 'Studied', message: `${skillId} improved by +${gain.toFixed(1)}` });
+        const label = SKILL_LABELS[skillId] || skillId;
+        if (isBreakthrough) {
+          get().addNotification({
+            type: 'achievement',
+            title: `💡 Breakthrough! ${label}`,
+            message: `Something clicked! +${gain.toFixed(1)} (3× gain). You understand this on a deeper level now.`,
+          });
+        } else {
+          const STUDY_FLAVORS = [
+            'Steady progress.', 'Concepts are starting to connect.',
+            'Good session — took detailed notes.', 'Read three chapters. Solid gains.',
+          ];
+          get().addNotification({
+            type: 'info',
+            title: `Studied ${label}`,
+            message: `+${gain.toFixed(1)} skill. ${STUDY_FLAVORS[Math.floor(Math.random() * STUDY_FLAVORS.length)]}`,
+          });
+        }
       },
 
       doExercise: () => {
         const { player } = get();
         if (!player) return;
+        const isPR = Math.random() < 0.10; // 10% personal record
         const updatedPlayer = applyExercise(player);
-        set({ player: updatedPlayer });
+        const finalPlayer = isPR
+          ? { ...updatedPlayer, stats: { ...updatedPlayer.stats, confidence: Math.min(100, updatedPlayer.stats.confidence + 3), health: Math.min(100, updatedPlayer.stats.health + 3) } }
+          : updatedPlayer;
+        set({ player: finalPlayer });
         get().advanceDay();
-        get().addNotification({ type: 'info', title: 'Exercised', message: '+5 Health, -10 Stress, +0.2 Confidence' });
+        const EX_FLAVORS = [
+          'Hit the gym hard today.', 'Morning run cleared your head.',
+          'Yoga session — stress is way down.', 'Pushed through a tough workout.',
+        ];
+        if (isPR) {
+          get().addNotification({ type: 'success', title: '🏆 Personal Record!', message: 'Best workout yet. +8 Health, +10 Confidence, -10 Stress. Feeling unstoppable.' });
+        } else {
+          get().addNotification({ type: 'info', title: 'Exercised', message: `+5 Health, -10 Stress. ${EX_FLAVORS[Math.floor(Math.random() * EX_FLAVORS.length)]}` });
+        }
       },
 
       doNetwork: () => {
         const { player } = get();
         if (!player) return;
         if (player.stats.energy < 10) {
-          get().addNotification({ type: 'warning', title: 'Too Tired', message: 'Rest before networking.' });
+          get().addNotification({ type: 'warning', title: 'Too Tired', message: 'You\'re too drained to network effectively.' });
           return;
         }
-        const updatedPlayer = applyNetworking(player);
+        const isValuableContact = Math.random() < 0.18; // 18% high-value contact
+        const cashBonus = isValuableContact && Math.random() < 0.35 ? Math.round(200 + Math.random() * 1300) : 0;
+        let updatedPlayer = applyNetworking(player);
+        if (isValuableContact) {
+          updatedPlayer = {
+            ...updatedPlayer,
+            stats: { ...updatedPlayer.stats, network: Math.min(100, updatedPlayer.stats.network + 2), reputation: Math.min(100, updatedPlayer.stats.reputation + 1) },
+            finances: cashBonus > 0 ? { ...updatedPlayer.finances, cash: updatedPlayer.finances.cash + cashBonus } : updatedPlayer.finances,
+          };
+        }
         set({ player: updatedPlayer });
         get().advanceDay();
-        get().addNotification({ type: 'info', title: 'Networked', message: '+1 Network, +0.5 Networking skill' });
+        const NET_FLAVORS = [
+          'Met several promising contacts.', 'Exchanged cards at an industry mixer.',
+          'Long lunch with a former colleague.', 'Attended a finance networking event.',
+        ];
+        if (isValuableContact) {
+          get().addNotification({
+            type: 'success',
+            title: '🤝 High-Value Contact!',
+            message: `Connected with someone influential. +3 Network, +1 Reputation.${cashBonus > 0 ? ` They introduced you to a client — +$${cashBonus}!` : ''}`,
+          });
+        } else {
+          get().addNotification({ type: 'info', title: 'Networked', message: `+1 Network, +0.5 Networking. ${NET_FLAVORS[Math.floor(Math.random() * NET_FLAVORS.length)]}` });
+        }
       },
 
       applyForJob: (jobId: string) => {

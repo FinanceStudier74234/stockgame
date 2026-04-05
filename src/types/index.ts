@@ -148,6 +148,8 @@ export interface Player {
   lastActionDate: number;
   experiencePoints: number;
   level: number;
+  workStreak: number;       // consecutive days worked
+  lastWorkedDay: number;    // totalDays when last worked (for streak tracking)
 }
 
 export interface BiographyEvent {

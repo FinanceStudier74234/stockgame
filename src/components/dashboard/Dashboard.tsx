@@ -58,6 +58,31 @@ export default function Dashboard() {
       .slice(0, 3);
   }, [completedMilestones, netWorth, player, aum]);
 
+  // Today's Picks: momentum, value (discount to target), catalyst (earnings soon)
+  const todaysPicks = useMemo(() => {
+    const all = Object.values(stocks);
+    const momentumPick = all
+      .filter(s => s.changePercent > 1.0 && s.momentum > 55 && s.assetType === 'stock')
+      .sort((a, b) => b.momentum - a.momentum)[0] || null;
+    const valuePick = all
+      .filter(s => s.analystPriceTarget > 0 && s.currentPrice > 0 && s.assetType === 'stock')
+      .map(s => ({ ...s, upside: (s.analystPriceTarget - s.currentPrice) / s.currentPrice }))
+      .filter(s => s.upside > 0.08)
+      .sort((a, b) => b.upside - a.upside)[0] || null;
+    const catalystPick = all
+      .filter(s => s.nextEarningsDay && s.nextEarningsDay - time.totalDays >= 1 && s.nextEarningsDay - time.totalDays <= 6 && s.assetType === 'stock')
+      .sort((a, b) => (a.nextEarningsDay || 0) - (b.nextEarningsDay || 0))[0] || null;
+    return { momentumPick, valuePick: valuePick as typeof valuePick & { upside: number } | null, catalystPick };
+  }, [stocks, time.totalDays]);
+
+  // Beat-the-market: portfolio day change vs average stock day change
+  const marketAvgChange = useMemo(() => {
+    const all = Object.values(stocks);
+    return all.reduce((s, st) => s + st.changePercent, 0) / (all.length || 1);
+  }, [stocks]);
+  const portfolioDayPct = portfolioValue > 0 ? (player.portfolio.dayChange / portfolioValue) * 100 : 0;
+  const alpha = portfolioDayPct - marketAvgChange;
+
   // Upcoming portfolio events: earnings and dividends in next 14 days
   const upcomingEvents = useMemo(() => {
     const events: Array<{ ticker: string; type: 'earnings' | 'dividend'; daysAway: number; amount?: number }> = [];
@@ -122,6 +147,11 @@ export default function Dashboard() {
               <div className={`text-xs mt-1 num font-medium ${player.portfolio.dayChange >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
                 {player.portfolio.dayChange >= 0 ? '+' : ''}{formatCurrency(player.portfolio.dayChange, true)} today
               </div>
+              {portfolioValue > 0 && (
+                <div className={`text-[10px] mt-0.5 num ${alpha >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                  {alpha >= 0 ? '↑' : '↓'} {Math.abs(alpha).toFixed(2)}% vs market
+                </div>
+              )}
             </div>
             <div className={`p-2 rounded-lg ${player.portfolio.dayChange >= 0 ? 'bg-accent-green/10' : 'bg-accent-red/10'}`}>
               {player.portfolio.dayChange >= 0
@@ -234,6 +264,62 @@ export default function Dashboard() {
                   </div>
                   <span className="text-xs font-bold text-accent-red num">{topMoverDown.changePercent.toFixed(2)}%</span>
                 </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Today's Picks */}
+          <Card title="Today's Picks" padding="sm" headerRight={
+            <button onClick={() => setScreen('market')} className="text-[10px] text-accent-blue hover:text-blue-400">Market →</button>
+          }>
+            <div className="space-y-2 px-1 pb-1">
+              {todaysPicks.momentumPick && (
+                <div className="flex items-center gap-2 p-2 bg-accent-green/5 rounded-lg border border-accent-green/10 cursor-pointer hover:bg-accent-green/10 transition-colors" onClick={() => setScreen('market')}>
+                  <span className="text-sm">🚀</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-white">{todaysPicks.momentumPick.ticker}</span>
+                      <Badge variant="green" size="xs">Momentum</Badge>
+                    </div>
+                    <div className="text-[9px] text-gray-500">Strong move today · Momentum {todaysPicks.momentumPick.momentum.toFixed(0)}</div>
+                  </div>
+                  <span className="text-xs font-bold text-accent-green num">+{todaysPicks.momentumPick.changePercent.toFixed(2)}%</span>
+                </div>
+              )}
+              {todaysPicks.valuePick && (
+                <div className="flex items-center gap-2 p-2 bg-accent-blue/5 rounded-lg border border-accent-blue/10 cursor-pointer hover:bg-accent-blue/10 transition-colors" onClick={() => setScreen('market')}>
+                  <span className="text-sm">💎</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-white">{todaysPicks.valuePick.ticker}</span>
+                      <Badge variant="blue" size="xs">Value</Badge>
+                    </div>
+                    <div className="text-[9px] text-gray-500">
+                      Target ${todaysPicks.valuePick.analystPriceTarget?.toFixed(0)} · {(todaysPicks.valuePick.upside * 100).toFixed(0)}% upside
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-accent-blue num">${todaysPicks.valuePick.currentPrice.toFixed(0)}</span>
+                </div>
+              )}
+              {todaysPicks.catalystPick && (
+                <div className="flex items-center gap-2 p-2 bg-accent-yellow/5 rounded-lg border border-accent-yellow/10 cursor-pointer hover:bg-accent-yellow/10 transition-colors" onClick={() => setScreen('market')}>
+                  <span className="text-sm">📊</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-white">{todaysPicks.catalystPick.ticker}</span>
+                      <Badge variant="yellow" size="xs">Catalyst</Badge>
+                    </div>
+                    <div className="text-[9px] text-gray-500">
+                      Earnings in {(todaysPicks.catalystPick.nextEarningsDay || 0) - time.totalDays}d · {todaysPicks.catalystPick.analystRating?.replace('_', ' ')}
+                    </div>
+                  </div>
+                  <span className={`text-xs font-bold num ${todaysPicks.catalystPick.changePercent >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                    {todaysPicks.catalystPick.changePercent.toFixed(2)}%
+                  </span>
+                </div>
+              )}
+              {!todaysPicks.momentumPick && !todaysPicks.valuePick && !todaysPicks.catalystPick && (
+                <div className="text-xs text-gray-500 text-center py-3">No standout picks today. Check back tomorrow.</div>
               )}
             </div>
           </Card>

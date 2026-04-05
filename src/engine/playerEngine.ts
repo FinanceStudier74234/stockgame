@@ -57,6 +57,8 @@ export function createPlayerFromArchetype(archetype: Archetype, playerName: stri
     lastActionDate: 0,
     experiencePoints: 0,
     level: 1,
+    workStreak: 0,
+    lastWorkedDay: -1,
   };
 }
 
