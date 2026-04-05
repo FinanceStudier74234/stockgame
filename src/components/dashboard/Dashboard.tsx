@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Briefcase, BarChart2, Star, Newspaper } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Briefcase, BarChart2, Star, Newspaper, Target, Calendar } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { formatCurrency, formatPercent, getTierLabel } from '../../utils/formatting';
+import { MILESTONES } from '../../data/winConditions';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import StatBar from '../ui/StatBar';
@@ -9,12 +10,13 @@ import MiniChart from '../ui/MiniChart';
 import Button from '../ui/Button';
 
 export default function Dashboard() {
-  const { player, economy, stocks, time, setScreen, businesses, hedgeFund } = useGameStore();
+  const { player, economy, stocks, time, setScreen, businesses, hedgeFund, completedMilestones } = useGameStore();
   if (!player) return null;
 
   const netWorth = player.finances.totalNetWorth;
   const portfolioValue = player.portfolio.totalValue;
   const tier = getTierLabel(netWorth);
+  const aum = hedgeFund?.aum || 0;
 
   const topMoverUp = useMemo(() => {
     return Object.values(stocks).sort((a, b) => b.changePercent - a.changePercent)[0];
@@ -30,6 +32,51 @@ export default function Dashboard() {
     .slice(0, 5);
 
   const recentBio = player.biographyEvents.slice(-4).reverse();
+
+  // Next milestone: find the incomplete one with highest progress
+  const nextGoal = useMemo(() => {
+    const bizCount = player.ownedBusinesses.length;
+    const empCount = 0; // approximation
+    return MILESTONES
+      .filter(m => !completedMilestones.includes(m.id))
+      .map(m => {
+        let current = 0;
+        const v = m.requirement.value;
+        switch (m.requirement.type) {
+          case 'netWorth': current = netWorth; break;
+          case 'cash': current = player.finances.cash; break;
+          case 'aum': current = aum; break;
+          case 'businesses': current = bizCount; break;
+          case 'employees': current = empCount; break;
+          case 'level': current = player.level; break;
+          case 'reputation': current = player.stats.reputation; break;
+          case 'skill': current = m.requirement.field ? (player.skills[m.requirement.field as keyof typeof player.skills] || 0) : 0; break;
+        }
+        return { ...m, progress: Math.min(1, current / v), current };
+      })
+      .sort((a, b) => b.progress - a.progress)
+      .slice(0, 3);
+  }, [completedMilestones, netWorth, player, aum]);
+
+  // Upcoming portfolio events: earnings and dividends in next 14 days
+  const upcomingEvents = useMemo(() => {
+    const events: Array<{ ticker: string; type: 'earnings' | 'dividend'; daysAway: number; amount?: number }> = [];
+    const holdings = Object.keys(player.portfolio.holdings);
+    for (const ticker of holdings) {
+      const stock = stocks[ticker];
+      if (!stock) continue;
+      const holding = player.portfolio.holdings[ticker];
+      if (stock.nextEarningsDay) {
+        const d = stock.nextEarningsDay - time.totalDays;
+        if (d >= 0 && d <= 14) events.push({ ticker, type: 'earnings', daysAway: d });
+      }
+      if (stock.nextDividendDay && stock.dividendPerShare > 0) {
+        const d = stock.nextDividendDay - time.totalDays;
+        if (d >= 0 && d <= 21) events.push({ ticker, type: 'dividend', daysAway: d, amount: holding.shares * stock.dividendPerShare });
+      }
+    }
+    return events.sort((a, b) => a.daysAway - b.daysAway).slice(0, 5);
+  }, [player.portfolio.holdings, stocks, time.totalDays]);
 
   return (
     <div className="screen-content h-full overflow-y-auto p-4 space-y-4">
@@ -319,23 +366,60 @@ export default function Dashboard() {
             </div>
           </Card>
 
-          {/* Quick actions */}
-          <Card title="Quick Actions" padding="sm">
-            <div className="grid grid-cols-2 gap-2 px-1 pb-1">
-              <Button variant="secondary" size="sm" onClick={() => setScreen('market')} icon={<TrendingUp size={12} />}>
-                Market
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setScreen('career')} icon={<Briefcase size={12} />}>
-                Jobs
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setScreen('skills')} icon={<Star size={12} />}>
-                Skills
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setScreen('portfolio')} icon={<BarChart2 size={12} />}>
-                Portfolio
-              </Button>
+          {/* Next Goals */}
+          <Card title="Next Goals" padding="sm" headerRight={
+            <button onClick={() => setScreen('milestones')} className="text-[10px] text-accent-blue hover:text-blue-400">All →</button>
+          }>
+            <div className="space-y-2 px-1 pb-1">
+              {nextGoal.map((m, i) => (
+                <div key={m.id} className={`p-2 rounded-lg border ${i === 0 ? 'border-accent-yellow/30 bg-accent-yellow/5' : 'border-dark-500 bg-dark-700'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{m.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-white truncate">{m.title}</div>
+                      <div className="text-[9px] text-gray-500 truncate">{m.description}</div>
+                    </div>
+                    <span className={`text-[10px] font-bold ${m.progress >= 0.8 ? 'text-accent-green' : m.progress >= 0.5 ? 'text-accent-yellow' : 'text-gray-500'}`}>
+                      {(m.progress * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-1 bg-dark-400 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${m.progress >= 0.8 ? 'bg-accent-green' : m.progress >= 0.5 ? 'bg-accent-yellow' : 'bg-accent-blue'}`}
+                      style={{ width: `${m.progress * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
+
+          {/* Upcoming Portfolio Events */}
+          {upcomingEvents.length > 0 && (
+            <Card title="Upcoming Events" padding="sm" headerRight={<Calendar size={12} className="text-gray-500" />}>
+              <div className="space-y-1.5 px-1 pb-1">
+                {upcomingEvents.map((ev, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span>{ev.type === 'earnings' ? '📊' : '💰'}</span>
+                      <span className="font-bold text-white">{ev.ticker}</span>
+                      <Badge variant={ev.type === 'earnings' ? 'blue' : 'green'} size="xs">
+                        {ev.type === 'earnings' ? 'Earnings' : 'Dividend'}
+                      </Badge>
+                    </div>
+                    <div className="text-right">
+                      <span className={`font-semibold num ${ev.daysAway === 0 ? 'text-accent-red' : ev.daysAway <= 3 ? 'text-accent-yellow' : 'text-gray-400'}`}>
+                        {ev.daysAway === 0 ? 'Today!' : `${ev.daysAway}d`}
+                      </span>
+                      {ev.amount != null && (
+                        <div className="text-[9px] text-accent-green num">+${ev.amount.toFixed(2)}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
     </div>

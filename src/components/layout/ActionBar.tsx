@@ -88,21 +88,39 @@ export default function ActionBar() {
           </button>
 
           {studyMode && (
-            <div className="absolute bottom-full left-0 mb-2 bg-dark-600 border border-dark-300 rounded-lg p-2 shadow-2xl z-50 min-w-[160px]">
-              <div className="text-[9px] text-gray-500 uppercase mb-1.5 px-1">Choose skill:</div>
-              {SKILLS.map(sk => (
-                <button
-                  key={sk.id}
-                  onClick={() => { doStudy(sk.id); setStudyMode(false); }}
-                  className="w-full text-left px-2 py-1.5 rounded text-xs text-gray-300 hover:bg-dark-400 hover:text-white transition-colors flex justify-between items-center"
-                >
-                  <span>{sk.label}</span>
-                  <span className="text-[10px] text-accent-blue">
-                    Lv {Math.floor((player.skills[sk.id as keyof typeof player.skills] || 0))}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <>
+              {/* Backdrop to close on outside click */}
+              <div className="fixed inset-0 z-40" onClick={() => setStudyMode(false)} />
+              {/* Popup fixed to top-right so it never obscures the action bar */}
+              <div className="fixed top-14 right-4 bg-dark-700 border border-dark-300 rounded-xl p-3 shadow-2xl z-50 w-56">
+                <div className="flex items-center justify-between mb-2 pb-2 border-b border-dark-500">
+                  <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Choose Skill to Study</span>
+                  <span className="text-[9px] text-accent-purple">-15 energy</span>
+                </div>
+                {SKILLS.map(sk => {
+                  const lvl = Math.floor(player.skills[sk.id as keyof typeof player.skills] || 0);
+                  const pct = ((player.skills[sk.id as keyof typeof player.skills] || 0) % 1) * 100;
+                  return (
+                    <button
+                      key={sk.id}
+                      onClick={() => { doStudy(sk.id); setStudyMode(false); }}
+                      className="w-full text-left px-2 py-2 rounded-lg text-xs text-gray-300 hover:bg-dark-500 hover:text-white transition-colors group"
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="font-medium group-hover:text-white">{sk.label}</span>
+                        <span className="text-[10px] text-accent-blue font-bold">Lv {lvl}</span>
+                      </div>
+                      <div className="w-full h-1 bg-dark-400 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-accent-purple/60 rounded-full transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       </div>

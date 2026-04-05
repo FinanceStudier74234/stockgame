@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, TrendingUp, TrendingDown, Eye, EyeOff, Filter } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Eye, EyeOff, Activity } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { formatCurrency, formatPercent } from '../../utils/formatting';
 import Card from '../ui/Card';
@@ -8,6 +8,14 @@ import Button from '../ui/Button';
 import MiniChart from '../ui/MiniChart';
 import StockDetail from './StockDetail';
 import { Sector } from '../../types';
+
+const RATING_SHORT: Record<string, { label: string; color: string }> = {
+  strong_buy: { label: 'SB', color: 'text-accent-green' },
+  buy:        { label: 'B',  color: 'text-accent-green/70' },
+  hold:       { label: 'H',  color: 'text-accent-yellow' },
+  sell:       { label: 'S',  color: 'text-accent-red/70' },
+  strong_sell:{ label: 'SS', color: 'text-accent-red' },
+};
 
 const SECTORS: { id: string; label: string }[] = [
   { id: 'all', label: 'All Sectors' },
@@ -27,12 +35,38 @@ const SECTORS: { id: string; label: string }[] = [
 ];
 
 export default function MarketScreen() {
-  const { stocks, etfs, crypto, player, selectStock, ui, addToWatchlist, removeFromWatchlist, setScreen } = useGameStore();
+  const { stocks, etfs, crypto, player, selectStock, ui, addToWatchlist, removeFromWatchlist, setScreen, time, economy } = useGameStore();
   const [search, setSearch] = useState('');
   const [selectedSector, setSelectedSector] = useState('all');
   const [sortBy, setSortBy] = useState<'ticker' | 'price' | 'change' | 'volume'>('change');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [tab, setTab] = useState<'stocks' | 'etfs' | 'crypto'>('stocks');
+
+  // Market pulse stats
+  const marketPulse = useMemo(() => {
+    const all = Object.values(stocks);
+    const gainers = all.filter(s => s.changePercent > 0).length;
+    const losers = all.filter(s => s.changePercent < 0).length;
+    const avgChange = all.reduce((sum, s) => sum + s.changePercent, 0) / all.length;
+
+    // Sector performance
+    const sectorMap: Record<string, { sum: number; count: number }> = {};
+    for (const s of all) {
+      if (!sectorMap[s.sector]) sectorMap[s.sector] = { sum: 0, count: 0 };
+      sectorMap[s.sector].sum += s.changePercent;
+      sectorMap[s.sector].count++;
+    }
+    const sectors = Object.entries(sectorMap)
+      .map(([sec, v]) => ({ sector: sec, avg: v.sum / v.count }))
+      .sort((a, b) => b.avg - a.avg);
+    const hotSector = sectors[0];
+    const coldSector = sectors[sectors.length - 1];
+
+    // Upcoming earnings in next 7 days across all stocks
+    const earningsThisWeek = all.filter(s => s.nextEarningsDay && s.nextEarningsDay - time.totalDays >= 0 && s.nextEarningsDay - time.totalDays <= 7).length;
+
+    return { gainers, losers, total: all.length, avgChange, hotSector, coldSector, earningsThisWeek };
+  }, [stocks, time.totalDays]);
 
   const allStocks = useMemo(() => {
     let list = Object.values(stocks);
@@ -62,6 +96,55 @@ export default function MarketScreen() {
 
   return (
     <div className="screen-content h-full flex flex-col overflow-hidden">
+      {/* Market Pulse Banner */}
+      <div className="flex-shrink-0 px-4 pt-3 pb-0">
+        <div className="bg-dark-700 border border-dark-500 rounded-xl px-4 py-2.5 flex items-center gap-6 overflow-x-auto">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <Activity size={13} className={marketPulse.avgChange >= 0 ? 'text-accent-green' : 'text-accent-red'} />
+            <span className="text-[10px] text-gray-500 uppercase">Market</span>
+            <span className={`text-xs font-bold num ${marketPulse.avgChange >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+              {marketPulse.avgChange >= 0 ? '+' : ''}{marketPulse.avgChange.toFixed(2)}% avg
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-xs font-bold text-accent-green num">{marketPulse.gainers}↑</span>
+            <div className="w-20 h-2 bg-dark-400 rounded-full overflow-hidden flex-shrink-0">
+              <div
+                className="h-full bg-accent-green/70 rounded-full"
+                style={{ width: `${(marketPulse.gainers / marketPulse.total) * 100}%` }}
+              />
+            </div>
+            <span className="text-xs font-bold text-accent-red num">{marketPulse.losers}↓</span>
+          </div>
+          {marketPulse.hotSector && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[10px] text-gray-500">Hot:</span>
+              <span className="text-[10px] font-semibold text-accent-green capitalize">{marketPulse.hotSector.sector}</span>
+              <span className="text-[10px] text-accent-green num">+{marketPulse.hotSector.avg.toFixed(1)}%</span>
+            </div>
+          )}
+          {marketPulse.coldSector && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[10px] text-gray-500">Weak:</span>
+              <span className="text-[10px] font-semibold text-accent-red capitalize">{marketPulse.coldSector.sector}</span>
+              <span className="text-[10px] text-accent-red num">{marketPulse.coldSector.avg.toFixed(1)}%</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="text-[10px] text-gray-500">VIX:</span>
+            <span className={`text-[10px] font-semibold num ${economy.vixLevel > 30 ? 'text-accent-red' : economy.vixLevel > 20 ? 'text-accent-yellow' : 'text-accent-green'}`}>
+              {economy.vixLevel.toFixed(1)}
+            </span>
+          </div>
+          {marketPulse.earningsThisWeek > 0 && (
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[10px] text-gray-500">📊 Earnings this week:</span>
+              <span className="text-[10px] font-bold text-accent-blue">{marketPulse.earningsThisWeek} stocks</span>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Header controls */}
       <div className="flex-shrink-0 p-4 pb-2 space-y-3">
         {/* Tabs */}
@@ -135,6 +218,7 @@ export default function MarketScreen() {
                   <th className="text-right px-3 py-2.5 text-[10px] text-gray-500 uppercase font-semibold hidden lg:table-cell">Chart</th>
                   <th className="text-right px-3 py-2.5 text-[10px] text-gray-500 uppercase font-semibold hidden xl:table-cell">Mkt Cap</th>
                   <th className="text-right px-3 py-2.5 text-[10px] text-gray-500 uppercase font-semibold hidden xl:table-cell">P/E</th>
+                  <th className="text-center px-3 py-2.5 text-[10px] text-gray-500 uppercase font-semibold hidden lg:table-cell">Rating</th>
                   <th className="px-3 py-2.5 text-[10px] text-gray-500 uppercase font-semibold text-center">Watch</th>
                   <th className="px-3 py-2.5 text-[10px] text-gray-500 uppercase font-semibold">Trade</th>
                 </tr>
@@ -184,6 +268,18 @@ export default function MarketScreen() {
                       </td>
                       <td className="px-3 py-2.5 text-right hidden xl:table-cell">
                         <span className="text-xs text-gray-400 num">{stock.peRatio > 0 ? stock.peRatio.toFixed(1) : 'N/A'}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center hidden lg:table-cell">
+                        {stock.analystRating ? (
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className={`text-[10px] font-bold ${RATING_SHORT[stock.analystRating]?.color ?? 'text-gray-500'}`}>
+                              {RATING_SHORT[stock.analystRating]?.label ?? '–'}
+                            </span>
+                            {stock.nextEarningsDay && stock.nextEarningsDay - time.totalDays >= 0 && stock.nextEarningsDay - time.totalDays <= 7 && (
+                              <span className="text-[9px] text-accent-blue">📊 {stock.nextEarningsDay - time.totalDays}d</span>
+                            )}
+                          </div>
+                        ) : <span className="text-[10px] text-gray-600">–</span>}
                       </td>
                       <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
                         <button
