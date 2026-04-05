@@ -14,7 +14,7 @@ function generatePriceHistory(price: number, volatility: number, days: number = 
 }
 
 export function createInitialStocks(): Record<string, Stock> {
-  const stockData: Omit<Stock, 'priceHistory' | 'changePercent' | 'changeDollar' | 'isInPlayerWatchlist' | 'previousPrice' | 'openPrice' | 'highPrice' | 'lowPrice'>[] = [
+  const stockData: Omit<Stock, 'priceHistory' | 'changePercent' | 'changeDollar' | 'isInPlayerWatchlist' | 'previousPrice' | 'openPrice' | 'highPrice' | 'lowPrice' | 'dividendPerShare' | 'nextDividendDay' | 'nextEarningsDay' | 'analystRating' | 'analystPriceTarget' | 'lastEarningsResult' | 'earningsHistory'>[] = [
     // --- TECHNOLOGY ---
     {
       ticker: 'APX',
@@ -1095,6 +1095,30 @@ export function createInitialStocks(): Record<string, Stock> {
     // Randomize quality metrics slightly for variety
     const jitter = (v: number, amt: number) => Math.max(0, Math.min(100, v + (Math.random() - 0.5) * amt));
 
+    // Compute quarterly dividend per share
+    const annualDividendPerShare = s.dividendYield > 0
+      ? parseFloat(((s.dividendYield / 100) * startingPrice).toFixed(2))
+      : 0;
+    const quarterlyDividendPerShare = parseFloat((annualDividendPerShare / 4).toFixed(2));
+
+    // Analyst rating derived from intrinsic quality + valuation
+    const score = (s.intrinsicQuality + s.valuation) / 2;
+    const analystRating: Stock['analystRating'] =
+      score > 80 ? 'strong_buy' : score > 65 ? 'buy' : score > 45 ? 'hold' : score > 30 ? 'sell' : 'strong_sell';
+
+    // Price target = fair value with analyst optimism baked in
+    const fairPE = 8 + (s.growthScore / 100) * 25 + (s.intrinsicQuality / 100) * 12;
+    const baseFairValue = s.eps > 0 ? s.eps * fairPE : s.intrinsicQuality * 0.5;
+    const analystPriceTarget = parseFloat((baseFairValue * (0.9 + Math.random() * 0.3)).toFixed(2));
+
+    // Stagger earnings dates so not all stocks report same day
+    const earningsOffset = Math.floor(Math.abs(s.ticker.split('').reduce((a, c) => a + c.charCodeAt(0), 0)) % 30);
+    const nextEarningsDay = 90 - (10 % 90) + earningsOffset; // first earnings ~90 days in
+
+    // Stagger dividend dates quarterly, different for each stock
+    const divOffset = Math.floor(Math.abs(s.ticker.charCodeAt(0) + (s.ticker.charCodeAt(1) || 0)) % 91);
+    const nextDividendDay = s.dividendYield > 0 ? 91 + divOffset : 0;
+
     stocks[s.ticker] = {
       ...s,
       currentPrice: startingPrice,
@@ -1106,6 +1130,13 @@ export function createInitialStocks(): Record<string, Stock> {
       changePercent: parseFloat(changePercent.toFixed(2)),
       changeDollar: parseFloat(changeDollar.toFixed(2)),
       isInPlayerWatchlist: false,
+      dividendPerShare: quarterlyDividendPerShare,
+      nextDividendDay,
+      nextEarningsDay,
+      analystRating,
+      analystPriceTarget,
+      lastEarningsResult: null,
+      earningsHistory: [],
       // Slight randomization of quality metrics
       hype: jitter(s.hype, 10),
       momentum: jitter(s.momentum, 12),

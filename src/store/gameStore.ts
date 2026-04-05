@@ -101,6 +101,10 @@ interface GameActions {
   actOnInsiderTip: (tipId: string) => void;
   hireLawyer: () => void;
   destroyEvidence: () => void;
+  openOffshoreAccount: () => void;
+  formShellCompany: () => void;
+  buyBurnerIdentity: () => void;
+  tipOffContact: (tipId: string) => void;
 
   // Save
   saveGame: () => void;
@@ -139,6 +143,10 @@ const INITIAL_STATE: Omit<GameState, keyof GameActions> = {
     lastFineAmount: 0,
     hasLawyer: false,
     lawyerDaysRemaining: 0,
+    hasOffshoreAccount: false,
+    hasShellCompany: false,
+    burnerUsesRemaining: 0,
+    contactExposureCount: 0,
   },
   achievements: createAchievementsMap(),
   notifications: [],
@@ -226,36 +234,45 @@ export const useGameStore = create<GameStore>()(
         const newStocks = updateAllStocks(state.stocks, newEconomy);
         const newCrypto = updateAllCrypto(state.crypto, newEconomy);
 
-        // ── Quarterly earnings season (every 90 days, staggered across stocks) ──
-        if (totalDays % 90 >= 0 && totalDays % 90 < 30) {
-          // Earnings season: ~1/3 of stocks report each day during the 30-day window
-          const earningsDay = totalDays % 90;
-          const tickers = Object.keys(newStocks);
-          for (const ticker of tickers) {
-            // Each stock has a deterministic earnings day based on its ticker hash
-            const stockEarningsDay = ticker.split('').reduce((s, c) => s + c.charCodeAt(0), 0) % 30;
-            if (earningsDay === stockEarningsDay) {
-              const result = simulateEarnings(newStocks[ticker], newEconomy);
-              const stock = newStocks[ticker];
-              const newPrice = Math.max(0.01, stock.currentPrice * (1 + result.priceImpact));
-              newStocks[ticker] = {
-                ...stock,
-                currentPrice: parseFloat(newPrice.toFixed(4)),
-                eps: result.newEps,
-                peRatio: result.newPE,
-                earningsStrength: clamp(
-                  stock.earningsStrength + (result.beatMiss === 'beat' ? 3 : result.beatMiss === 'miss' ? -4 : 0),
-                  10, 100
-                ),
-              };
-              if (result.beatMiss !== 'inline') {
-                get().addNotification({
-                  type: result.beatMiss === 'beat' ? 'success' : 'warning',
-                  title: `Earnings: ${ticker}`,
-                  message: result.headline,
-                  duration: 6000,
-                });
-              }
+        // ── Earnings reports: each stock fires on its own nextEarningsDay ──
+        for (const ticker of Object.keys(newStocks)) {
+          const stock = newStocks[ticker];
+          if (!stock.nextEarningsDay) continue;
+          if (totalDays === stock.nextEarningsDay) {
+            const result = simulateEarnings(stock, newEconomy);
+            const newPrice = Math.max(0.01, stock.currentPrice * (1 + result.priceImpact));
+            // Update analyst rating & price target after earnings
+            const newEarningsStrength = clamp(
+              stock.earningsStrength + (result.beatMiss === 'beat' ? 4 : result.beatMiss === 'miss' ? -5 : 0), 10, 100
+            );
+            const newAnalystRating: Stock['analystRating'] = result.beatMiss === 'beat'
+              ? (stock.analystRating === 'sell' ? 'hold' : stock.analystRating === 'hold' ? 'buy' : 'strong_buy')
+              : result.beatMiss === 'miss'
+              ? (stock.analystRating === 'strong_buy' ? 'buy' : stock.analystRating === 'buy' ? 'hold' : 'sell')
+              : stock.analystRating;
+            const targetAdjust = result.beatMiss === 'beat' ? 1.05 : result.beatMiss === 'miss' ? 0.93 : 1.0;
+            newStocks[ticker] = {
+              ...stock,
+              currentPrice: parseFloat(newPrice.toFixed(4)),
+              eps: result.newEps,
+              peRatio: result.newPE,
+              earningsStrength: newEarningsStrength,
+              lastEarningsResult: result.beatMiss,
+              analystRating: newAnalystRating,
+              analystPriceTarget: parseFloat((stock.analystPriceTarget * targetAdjust).toFixed(2)),
+              earningsHistory: [
+                { day: totalDays, result: result.beatMiss, impact: parseFloat((result.priceImpact * 100).toFixed(1)) },
+                ...(stock.earningsHistory || []).slice(0, 7),
+              ],
+              nextEarningsDay: totalDays + 90, // next earnings in ~90 days
+            };
+            if (result.beatMiss !== 'inline') {
+              get().addNotification({
+                type: result.beatMiss === 'beat' ? 'success' : 'warning',
+                title: `📊 ${ticker} Earnings`,
+                message: `${result.headline} | Impact: ${result.priceImpact > 0 ? '+' : ''}${(result.priceImpact * 100).toFixed(1)}%`,
+                duration: 7000,
+              });
             }
           }
         }
@@ -290,6 +307,55 @@ export const useGameStore = create<GameStore>()(
         let updatedPlayer = processDebtInterest(state.player);
         updatedPlayer = { ...updatedPlayer, portfolio: newPortfolio };
         updatedPlayer = updateNetWorth(updatedPlayer, newPortfolio.totalValue);
+
+        // ── Dividend payments: each stock fires on its nextDividendDay ──
+        let dividendIncome = 0;
+        const dividendReceipts: string[] = [];
+        for (const ticker of Object.keys(newStocks)) {
+          const stock = newStocks[ticker];
+          if (!stock.nextDividendDay || stock.dividendPerShare <= 0) continue;
+          if (totalDays === stock.nextDividendDay) {
+            const holding = updatedPlayer.portfolio.holdings[ticker];
+            if (holding && holding.shares > 0) {
+              const payment = parseFloat((holding.shares * stock.dividendPerShare).toFixed(2));
+              dividendIncome += payment;
+              dividendReceipts.push(`${ticker}: $${payment.toFixed(2)}`);
+              updatedPlayer = {
+                ...updatedPlayer,
+                portfolio: {
+                  ...updatedPlayer.portfolio,
+                  holdings: {
+                    ...updatedPlayer.portfolio.holdings,
+                    [ticker]: {
+                      ...holding,
+                      dividendsEarned: (holding.dividendsEarned || 0) + payment,
+                    },
+                  },
+                },
+              };
+            }
+            // Slight dividend drift and schedule next quarterly payout
+            const newDivPerShare = parseFloat(Math.max(0, stock.dividendPerShare * (0.98 + Math.random() * 0.06)).toFixed(2));
+            newStocks[ticker] = {
+              ...stock,
+              dividendPerShare: newDivPerShare,
+              dividendYield: parseFloat(((newDivPerShare * 4 / stock.currentPrice) * 100).toFixed(2)),
+              nextDividendDay: totalDays + 91,
+            };
+          }
+        }
+        if (dividendIncome > 0) {
+          updatedPlayer = {
+            ...updatedPlayer,
+            finances: { ...updatedPlayer.finances, cash: updatedPlayer.finances.cash + dividendIncome },
+          };
+          get().addNotification({
+            type: 'success',
+            title: `💰 Dividend Payments Received`,
+            message: `+$${dividendIncome.toFixed(2)} from ${dividendReceipts.length} holding${dividendReceipts.length > 1 ? 's' : ''}. ${dividendReceipts.slice(0, 3).join(' | ')}`,
+            duration: 8000,
+          });
+        }
 
         // Aging: every 365 days
         if (totalDays % 365 === 0) {
@@ -2050,20 +2116,31 @@ export const useGameStore = create<GameStore>()(
         const updatedTips = state.insiderTips.map(t =>
           t.id === tipId ? { ...t, isActedOn: true } : t
         );
-        const riskBump = tip.investigationRiskBase * 0.15;
+        // Risk calculation — countermeasures reduce exposure
+        let riskBump = tip.investigationRiskBase * 0.15;
+        let usedBurner = false;
+        const sec = state.secStatus;
+        if (sec.burnerUsesRemaining > 0) { riskBump *= 0.25; usedBurner = true; }
+        else if (sec.hasShellCompany && sec.hasOffshoreAccount) { riskBump *= 0.35; }
+        else if (sec.hasShellCompany) { riskBump *= 0.55; }
+        else if (sec.hasOffshoreAccount) { riskBump *= 0.65; }
         const newSEC: SECStatus = {
           ...state.secStatus,
           tipsActedOn: state.secStatus.tipsActedOn + 1,
           investigationLevel: Math.min(90, state.secStatus.investigationLevel + riskBump),
+          burnerUsesRemaining: usedBurner ? Math.max(0, (state.secStatus.burnerUsesRemaining || 0) - 1) : (state.secStatus.burnerUsesRemaining || 0),
         };
         set({ insiderTips: updatedTips, secStatus: newSEC });
-        // Navigate to trading for this stock
         get().setScreen('trading');
         get().selectStock(tip.ticker);
+        const countermeasureNote = usedBurner ? ' Burner identity used — very low trace risk.' :
+          sec.hasShellCompany && sec.hasOffshoreAccount ? ' Shell + offshore active — minimal exposure.' :
+          sec.hasShellCompany ? ' Shell company routing active.' :
+          sec.hasOffshoreAccount ? ' Offshore account routing active.' : '';
         get().addNotification({
           type: 'warning',
           title: 'Tip Activated',
-          message: `You're acting on inside information about ${tip.ticker}. Trade carefully — the SEC is always watching.`,
+          message: `You're acting on inside information about ${tip.ticker}. Risk added: +${riskBump.toFixed(1)}.${countermeasureNote}`,
           duration: 8000,
         });
       },
@@ -2120,6 +2197,98 @@ export const useGameStore = create<GameStore>()(
           title: 'Evidence Cleared',
           message: `Trading records "cleaned up." Investigation level reduced by ${reduction.toFixed(0)} points.`,
           duration: 6000,
+        });
+      },
+
+      openOffshoreAccount: () => {
+        const state = get();
+        if (!state.player) return;
+        const cost = 75000;
+        if (state.secStatus.hasOffshoreAccount) {
+          get().addNotification({ type: 'info', title: 'Already Active', message: 'You already have an offshore account in the Cayman Islands.' }); return;
+        }
+        if (state.player.finances.cash < cost) {
+          get().addNotification({ type: 'error', title: 'Insufficient Funds', message: `Offshore account setup requires $${cost.toLocaleString()}.` }); return;
+        }
+        set({
+          player: { ...state.player, finances: { ...state.player.finances, cash: state.player.finances.cash - cost } },
+          secStatus: { ...state.secStatus, hasOffshoreAccount: true, scrutinyMultiplier: Math.max(0.4, state.secStatus.scrutinyMultiplier - 0.5) },
+        });
+        get().addNotification({
+          type: 'success', title: 'Offshore Account Opened',
+          message: 'Cayman Islands account active. SEC scrutiny multiplier permanently reduced. Profits routed offshore remain harder to trace.',
+          duration: 10000,
+        });
+      },
+
+      formShellCompany: () => {
+        const state = get();
+        if (!state.player) return;
+        const cost = 40000;
+        if (state.secStatus.hasShellCompany) {
+          get().addNotification({ type: 'info', title: 'Already Active', message: 'Your Delaware shell company is already operational.' }); return;
+        }
+        if (state.player.finances.cash < cost) {
+          get().addNotification({ type: 'error', title: 'Insufficient Funds', message: `Shell company formation costs $${cost.toLocaleString()}.` }); return;
+        }
+        set({
+          player: { ...state.player, finances: { ...state.player.finances, cash: state.player.finances.cash - cost } },
+          secStatus: { ...state.secStatus, hasShellCompany: true, scrutinyMultiplier: Math.max(0.6, state.secStatus.scrutinyMultiplier - 0.3) },
+        });
+        get().addNotification({
+          type: 'success', title: 'Shell Company Formed',
+          message: '"Apex Horizon LLC" registered in Delaware. Trades routed through the entity are 30% less traceable to you personally.',
+          duration: 10000,
+        });
+      },
+
+      buyBurnerIdentity: () => {
+        const state = get();
+        if (!state.player) return;
+        const cost = 20000;
+        if (state.player.finances.cash < cost) {
+          get().addNotification({ type: 'error', title: 'Insufficient Funds', message: `Burner identities cost $${cost.toLocaleString()} each.` }); return;
+        }
+        set({
+          player: { ...state.player, finances: { ...state.player.finances, cash: state.player.finances.cash - cost } },
+          secStatus: { ...state.secStatus, burnerUsesRemaining: (state.secStatus.burnerUsesRemaining || 0) + 3 },
+        });
+        get().addNotification({
+          type: 'success', title: 'Burner Identities Acquired',
+          message: '3 anonymous trading accounts loaded. When acting on a tip, you can execute trades through these with significantly reduced SEC exposure.',
+          duration: 8000,
+        });
+      },
+
+      tipOffContact: (tipId: string) => {
+        const state = get();
+        if (!state.player) return;
+        const tip = state.insiderTips.find(t => t.id === tipId);
+        if (!tip || tip.isExpired || tip.isRevealed) {
+          get().addNotification({ type: 'warning', title: 'Tip Unavailable', message: 'This tip can no longer be shared.' }); return;
+        }
+        // Sharing the tip with a contact creates exposure but they'll cut you in
+        const cutPercentage = 0.20; // 20% of their profits come back to you
+        const updatedTips = state.insiderTips.map(t =>
+          t.id === tipId ? { ...t, isActedOn: true } : t
+        );
+        // Increases contact exposure — more people know = more risk
+        const newExposure = (state.secStatus.contactExposureCount || 0) + 1;
+        const additionalRisk = newExposure * 5; // each additional contact multiplies exposure
+        set({
+          insiderTips: updatedTips,
+          secStatus: {
+            ...state.secStatus,
+            tipsActedOn: state.secStatus.tipsActedOn + 1,
+            contactExposureCount: newExposure,
+            scrutinyMultiplier: Math.min(5, state.secStatus.scrutinyMultiplier + 0.2),
+            investigationLevel: Math.min(90, state.secStatus.investigationLevel + additionalRisk),
+          },
+        });
+        get().addNotification({
+          type: 'warning', title: 'Tip Shared',
+          message: `You tipped off a contact about ${tip.ticker}. They'll pay you 20% of their profits — but now ${newExposure} person${newExposure > 1 ? 's' : ''} know${newExposure === 1 ? 's' : ''} about this. Each one is a potential witness.`,
+          duration: 10000,
         });
       },
     }),

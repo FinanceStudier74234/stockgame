@@ -218,6 +218,13 @@ export interface Stock {
   peRatio: number;
   eps: number;
   dividendYield: number;
+  dividendPerShare: number;       // quarterly dividend payment per share
+  nextDividendDay: number;        // game day of next dividend payout
+  nextEarningsDay: number;        // game day of next earnings report
+  analystRating: 'strong_buy' | 'buy' | 'hold' | 'sell' | 'strong_sell';
+  analystPriceTarget: number;     // analyst consensus price target
+  lastEarningsResult: 'beat' | 'miss' | 'inline' | null;
+  earningsHistory: Array<{ day: number; result: 'beat' | 'miss' | 'inline'; impact: number }>;
   // Quality metrics (0-100 scale)
   intrinsicQuality: number;
   hype: number;
@@ -615,6 +622,14 @@ export interface SECStatus {
   lastFineAmount: number;
   hasLawyer: boolean;
   lawyerDaysRemaining: number;
+  /** Offshore account reduces SEC detection chance */
+  hasOffshoreAccount: boolean;
+  /** Shell company routes trades, reducing traceability */
+  hasShellCompany: boolean;
+  /** Burner identity for one-time anonymous trade */
+  burnerUsesRemaining: number;
+  /** Contacts who could flip on you */
+  contactExposureCount: number;
 }
 
 // ============================================================
