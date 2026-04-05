@@ -1084,20 +1084,33 @@ export function createInitialStocks(): Record<string, Stock> {
 
   const stocks: Record<string, Stock> = {};
   stockData.forEach(s => {
-    const priceHistory = generatePriceHistory(s.currentPrice, s.volatility / 100, 60);
-    const previousPrice = priceHistory[priceHistory.length - 2] || s.currentPrice;
-    const changeDollar = s.currentPrice - previousPrice;
+    // Randomize starting price ±15% so each game starts differently
+    const priceVariation = 0.85 + Math.random() * 0.30;
+    const startingPrice = parseFloat((s.currentPrice * priceVariation).toFixed(2));
+    const priceHistory = generatePriceHistory(startingPrice, s.volatility / 100, 60);
+    const previousPrice = priceHistory[priceHistory.length - 2] || startingPrice;
+    const changeDollar = startingPrice - previousPrice;
     const changePercent = (changeDollar / previousPrice) * 100;
+
+    // Randomize quality metrics slightly for variety
+    const jitter = (v: number, amt: number) => Math.max(0, Math.min(100, v + (Math.random() - 0.5) * amt));
+
     stocks[s.ticker] = {
       ...s,
+      currentPrice: startingPrice,
       previousPrice,
       openPrice: previousPrice,
-      highPrice: s.currentPrice * (1 + Math.random() * 0.02),
-      lowPrice: s.currentPrice * (1 - Math.random() * 0.02),
+      highPrice: startingPrice * (1 + Math.random() * 0.05),
+      lowPrice: startingPrice * (1 - Math.random() * 0.05),
       priceHistory,
       changePercent: parseFloat(changePercent.toFixed(2)),
       changeDollar: parseFloat(changeDollar.toFixed(2)),
       isInPlayerWatchlist: false,
+      // Slight randomization of quality metrics
+      hype: jitter(s.hype, 10),
+      momentum: jitter(s.momentum, 12),
+      sentiment: jitter(s.sentiment, 10),
+      valuation: jitter(s.valuation, 8),
     };
   });
   return stocks;

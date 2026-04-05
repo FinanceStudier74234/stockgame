@@ -147,24 +147,45 @@ export function updateEconomy(economy: EconomyState): EconomyState {
 }
 
 export function createInitialEconomy(): EconomyState {
+  // Randomize starting phase for replay variety
+  const startingPhases: { phase: EconomicPhase; weight: number }[] = [
+    { phase: 'expansion', weight: 0.30 },
+    { phase: 'boom', weight: 0.15 },
+    { phase: 'recovery', weight: 0.20 },
+    { phase: 'slowdown', weight: 0.15 },
+    { phase: 'recession', weight: 0.10 },
+    { phase: 'euphoria', weight: 0.05 },
+    { phase: 'stagflation', weight: 0.05 },
+  ];
+  let roll = Math.random();
+  let startPhase: EconomicPhase = 'expansion';
+  for (const sp of startingPhases) {
+    roll -= sp.weight;
+    if (roll <= 0) { startPhase = sp.phase; break; }
+  }
+
+  const targets = PHASE_TARGETS[startPhase];
+  // Add noise to starting values so each game feels different
+  const noise = (base: number, pct: number) => base + base * (Math.random() - 0.5) * pct;
+
   return {
-    phase: 'expansion',
-    gdpGrowth: 2.8,
-    inflationRate: 3.2,
-    unemploymentRate: 4.2,
-    federalFundsRate: 5.25,
-    tenYearYield: 4.5,
-    creditAvailability: 65,
-    marketSentiment: 35,
-    liquidityIndex: 68,
-    consumerConfidence: 70,
-    vixLevel: 18,
-    dollarsStrength: 62,
-    oilPrice: 82.50,
-    goldPrice: 2050,
-    cryptoSentiment: 45,
-    sectorRotation: ['technology', 'ai', 'banking'],
-    phaseMonthsRemaining: 8,
+    phase: startPhase,
+    gdpGrowth: parseFloat(noise(targets.gdpGrowth as number || 2.0, 0.3).toFixed(2)),
+    inflationRate: parseFloat(noise(targets.inflationRate as number || 2.5, 0.3).toFixed(2)),
+    unemploymentRate: parseFloat(noise(targets.unemploymentRate as number || 5.0, 0.2).toFixed(2)),
+    federalFundsRate: parseFloat(noise(targets.federalFundsRate as number || 3.0, 0.3).toFixed(2)),
+    tenYearYield: parseFloat(noise(4.0, 0.3).toFixed(2)),
+    creditAvailability: parseFloat(noise(60, 0.3).toFixed(1)),
+    marketSentiment: parseFloat(noise(targets.marketSentiment as number || 20, 0.5).toFixed(1)),
+    liquidityIndex: parseFloat(noise(targets.liquidityIndex as number || 60, 0.3).toFixed(1)),
+    consumerConfidence: parseFloat(noise(65, 0.3).toFixed(1)),
+    vixLevel: parseFloat(noise(targets.vixLevel as number || 18, 0.3).toFixed(1)),
+    dollarsStrength: parseFloat(noise(55, 0.2).toFixed(1)),
+    oilPrice: parseFloat(noise(78, 0.3).toFixed(2)),
+    goldPrice: parseFloat(noise(2000, 0.15).toFixed(2)),
+    cryptoSentiment: parseFloat(noise(40, 0.5).toFixed(1)),
+    sectorRotation: SECTOR_ROTATION_BY_PHASE[startPhase],
+    phaseMonthsRemaining: Math.floor(60 + Math.random() * 120),
     bubbleSectors: [],
     crisisTriggers: [],
     newsHeadlines: [],

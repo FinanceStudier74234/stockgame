@@ -7,7 +7,8 @@ import {
 } from '../types';
 import { createInitialStocks, createInitialETFs, createInitialCrypto } from '../data/stocks';
 import { createInitialEconomy, updateEconomy } from '../engine/economyEngine';
-import { updateAllStocks, updateAllCrypto } from '../engine/marketEngine';
+import { updateAllStocks, updateAllCrypto, simulateEarnings, reset52WeekRange } from '../engine/marketEngine';
+import { clamp } from '../utils/math';
 import { createAchievementsMap } from '../data/achievements';
 import {
   createPlayerFromArchetype,
@@ -225,6 +226,47 @@ export const useGameStore = create<GameStore>()(
         const newStocks = updateAllStocks(state.stocks, newEconomy);
         const newCrypto = updateAllCrypto(state.crypto, newEconomy);
 
+        // ── Quarterly earnings season (every 90 days, staggered across stocks) ──
+        if (totalDays % 90 >= 0 && totalDays % 90 < 30) {
+          // Earnings season: ~1/3 of stocks report each day during the 30-day window
+          const earningsDay = totalDays % 90;
+          const tickers = Object.keys(newStocks);
+          for (const ticker of tickers) {
+            // Each stock has a deterministic earnings day based on its ticker hash
+            const stockEarningsDay = ticker.split('').reduce((s, c) => s + c.charCodeAt(0), 0) % 30;
+            if (earningsDay === stockEarningsDay) {
+              const result = simulateEarnings(newStocks[ticker], newEconomy);
+              const stock = newStocks[ticker];
+              const newPrice = Math.max(0.01, stock.currentPrice * (1 + result.priceImpact));
+              newStocks[ticker] = {
+                ...stock,
+                currentPrice: parseFloat(newPrice.toFixed(4)),
+                eps: result.newEps,
+                peRatio: result.newPE,
+                earningsStrength: clamp(
+                  stock.earningsStrength + (result.beatMiss === 'beat' ? 3 : result.beatMiss === 'miss' ? -4 : 0),
+                  10, 100
+                ),
+              };
+              if (result.beatMiss !== 'inline') {
+                get().addNotification({
+                  type: result.beatMiss === 'beat' ? 'success' : 'warning',
+                  title: `Earnings: ${ticker}`,
+                  message: result.headline,
+                  duration: 6000,
+                });
+              }
+            }
+          }
+        }
+
+        // ── Reset 52-week ranges annually ──
+        if (totalDays % 365 === 1) {
+          for (const ticker of Object.keys(newStocks)) {
+            newStocks[ticker] = reset52WeekRange(newStocks[ticker]);
+          }
+        }
+
         // Update ETFs (simpler)
         const newEtfs = { ...state.etfs };
         for (const ticker of Object.keys(newEtfs)) {
@@ -392,11 +434,23 @@ export const useGameStore = create<GameStore>()(
         // Hedge fund monthly processing
         let newHedgeFund = state.hedgeFund;
         if (newHedgeFund && totalDays % 30 === 0) {
-          // Calculate month's portfolio return
+          // Calculate month's portfolio return with employee contributions
           const portfolioReturn = updatedPlayer.portfolio.dayChangePercent / 100;
           const teamBonus = calculateTeamBonus(state.employees);
           const strategyBonus = newHedgeFund.strategy === 'quant' ? 0.002 : 0;
-          const monthlyReturn = portfolioReturn + teamBonus + strategyBonus;
+
+          // Employee special ability bonuses
+          const empList = Object.values(state.employees);
+          let empAlpha = 0;
+          for (const emp of empList) {
+            if (emp.specialAbility?.includes('Alpha Generator')) empAlpha += 0.0015; // +0.15%/mo
+            if (emp.specialAbility?.includes('Independent Sleeve')) empAlpha += 0.003; // +0.3%/mo
+            if (emp.specialAbility?.includes('Quant Engine')) empAlpha += 0.002; // +0.2%/mo
+            if (emp.specialAbility?.includes('Sharp Execution')) empAlpha += 0.001; // reduced costs
+            if (emp.specialAbility?.includes('Market Maker')) empAlpha += 0.0008; // liquidity edge
+          }
+
+          const monthlyReturn = portfolioReturn + teamBonus + strategyBonus + empAlpha;
 
           // Update NAV
           const newNAV = newHedgeFund.nav * (1 + monthlyReturn);
@@ -418,43 +472,116 @@ export const useGameStore = create<GameStore>()(
           const aumGrowth = newHedgeFund.aum * monthlyReturn;
           const newAUM = newHedgeFund.aum + aumGrowth;
 
-          // LP satisfaction changes
-          const updatedLPs = newHedgeFund.limitedPartners.map(lp => ({
-            ...lp,
-            satisfactionLevel: Math.min(100, Math.max(0,
-              lp.satisfactionLevel + (monthlyReturn > 0.01 ? 5 : monthlyReturn < -0.05 ? -10 : 1)
-            )),
-            isRedemptionPending: lp.satisfactionLevel < 30 && (totalDays - lp.entryDate) / 30 > lp.lockupPeriod,
-          }));
+          // LP satisfaction — more nuanced by type
+          const hasCFO = Object.values(state.employees).some(e => e.role === 'cfo');
+          const hasCompliance = Object.values(state.employees).some(e => e.role === 'compliance_officer');
+          const updatedLPs = newHedgeFund.limitedPartners.map(lp => {
+            // Different LP types have different expectations
+            const expectation = lp.type === 'pension' ? 0.005 : // pensions want steady 0.5%/mo
+              lp.type === 'endowment' ? 0.008 : // endowments want 0.8%/mo
+              lp.type === 'institution' ? 0.01 : // institutions want 1%/mo
+              lp.type === 'family_office' ? 0.012 : // family offices want more
+              0.006; // individuals are moderate
 
-          // Random new LP events (if IR employee exists)
+            let satChange = 0;
+            if (monthlyReturn > expectation * 2) satChange = 8; // crushed it
+            else if (monthlyReturn > expectation) satChange = 4; // beat expectations
+            else if (monthlyReturn > 0) satChange = 1; // positive but below par
+            else if (monthlyReturn > -0.02) satChange = -3; // small loss
+            else if (monthlyReturn > -0.05) satChange = -8; // meaningful loss
+            else satChange = -15; // big loss
+
+            // CFO and compliance officers help retain LPs
+            if (hasCFO) satChange = satChange < 0 ? satChange * 0.7 : satChange * 1.1;
+            if (hasCompliance && satChange < 0) satChange *= 0.85;
+
+            const newSat = Math.min(100, Math.max(0, lp.satisfactionLevel + satChange));
+            const pastLockup = (totalDays - lp.entryDate) / 30 > lp.lockupPeriod;
+
+            return {
+              ...lp,
+              satisfactionLevel: Math.round(newSat),
+              isRedemptionPending: newSat < lp.redemptionThreshold && pastLockup,
+            };
+          });
+
+          // Random new LP events — quality depends on reputation and employees
           const hasIR = Object.values(state.employees).some(e => e.role === 'investor_relations' || e.role === 'sales_head');
-          const chanceNewLP = hasIR ? 0.25 : 0.08;
-          if (Math.random() < chanceNewLP && newHedgeFund.reputation > 40) {
-            const lpTypes: LimitedPartner['type'][] = ['individual', 'institution', 'pension', 'family_office'];
+          const hasSalesHead = Object.values(state.employees).some(e => e.role === 'sales_head');
+          const chanceNewLP = hasSalesHead ? 0.30 : hasIR ? 0.18 : 0.06;
+          if (Math.random() < chanceNewLP && newHedgeFund.reputation > 30) {
+            const rep = newHedgeFund.reputation;
+            const lpTypes: LimitedPartner['type'][] = rep > 70
+              ? ['institution', 'pension', 'endowment', 'family_office']
+              : rep > 45
+              ? ['individual', 'institution', 'family_office']
+              : ['individual'];
             const randomType = lpTypes[Math.floor(Math.random() * lpTypes.length)];
-            const lpNames = ['Atlas Capital', 'Meridian Endowment', 'Riverside Family Office', 'Pacific Pension Fund', 'Summit Ventures', 'Zenith Partners'];
-            const randomName = lpNames[Math.floor(Math.random() * lpNames.length)];
-            const lpAmount = randomType === 'institution' ? 500000 + Math.random() * 2000000 :
-              randomType === 'pension' ? 1000000 + Math.random() * 5000000 :
-              100000 + Math.random() * 500000;
+
+            const LP_NAMES: Record<LimitedPartner['type'], string[]> = {
+              individual: [
+                'Dr. Richard Hartley', 'Susan Cho', 'Michael Adebayo', 'Elena Vasquez',
+                'James Worthington III', 'Patricia Liu', 'Ahmed Al-Rashid', 'Olivia Brennan',
+                'Thomas Ikeda', 'Natasha Petrov', 'Robert Greenfield', 'Diana Okonkwo',
+              ],
+              institution: [
+                'Atlas Capital Partners', 'Meridian Asset Management', 'Vanguard Institutional',
+                'Wellington Management', 'Citadel Allocations', 'Two Sigma Ventures',
+                'AQR Capital Management', 'Point72 Asset Management', 'Coatue Management',
+                'Marshall Wace', 'Man Group', 'Winton Capital',
+              ],
+              pension: [
+                'CalPERS Fund', 'NY State Teachers Pension', 'Ontario Teachers Fund',
+                'Texas Municipal Retirement', 'UK Pension Authority', 'Danish ATP Fund',
+                'Florida Retirement System', 'Ohio Public Employees', 'Norwegian Government Pension',
+                'Australian Super Fund', 'CPP Investment Board', 'Swiss National Pension',
+              ],
+              endowment: [
+                'Harvard Management Company', 'Yale Endowment Office', 'Stanford Endowment',
+                'Princeton Investment Co.', 'MIT Endowment Fund', 'Duke Capital Management',
+                'Rockefeller Foundation', 'Ford Foundation', 'Getty Trust',
+              ],
+              family_office: [
+                'Riverside Family Office', 'Walton Legacy Partners', 'Pritzker Group',
+                'Lauder Family Holdings', 'Mars Capital Trust', 'Simons Family Foundation',
+                'Soros Family Office', 'Dalio Family Capital', 'Griffin Family Trust',
+                'Bezos Expeditions', 'Koch Capital', 'Bloomberg Family Office',
+              ],
+            };
+            const namePool = LP_NAMES[randomType];
+            const existingNames = new Set(updatedLPs.map(lp => lp.name));
+            const available = namePool.filter(n => !existingNames.has(n));
+            const randomName = available.length > 0
+              ? available[Math.floor(Math.random() * available.length)]
+              : `${namePool[0]} (${Math.floor(Math.random() * 999)})`;
+
+            const repMultiplier = 0.5 + rep / 100;
+            const lpAmount = Math.floor(
+              randomType === 'pension' ? (2000000 + Math.random() * 8000000) * repMultiplier :
+              randomType === 'endowment' ? (1000000 + Math.random() * 5000000) * repMultiplier :
+              randomType === 'institution' ? (500000 + Math.random() * 3000000) * repMultiplier :
+              randomType === 'family_office' ? (250000 + Math.random() * 2000000) * repMultiplier :
+              (50000 + Math.random() * 500000) * repMultiplier
+            );
 
             const newLP: LimitedPartner = {
-              id: `lp_auto_${Date.now()}`,
+              id: `lp_auto_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
               name: randomName,
               type: randomType,
               investedAmount: lpAmount,
               entryDate: totalDays,
-              satisfactionLevel: 70,
-              redemptionThreshold: 20,
-              lockupPeriod: 12,
+              satisfactionLevel: 65 + Math.floor(Math.random() * 20),
+              redemptionThreshold: randomType === 'individual' ? 30 :
+                randomType === 'institution' ? 15 : randomType === 'pension' ? 12 : 20,
+              lockupPeriod: randomType === 'pension' ? 24 :
+                randomType === 'endowment' ? 18 : randomType === 'institution' ? 12 : 6,
               isRedemptionPending: false,
             };
             updatedLPs.push(newLP);
             get().addNotification({
               type: 'success',
-              title: 'New LP Approaching!',
-              message: `${randomName} wants to invest $${(lpAmount / 1000).toFixed(0)}K in your fund.`,
+              title: 'New LP Investor!',
+              message: `${randomName} (${randomType.replace('_', ' ')}) invested $${(lpAmount / 1000).toFixed(0)}K in your fund.`,
               duration: 8000,
             });
           }
@@ -918,11 +1045,14 @@ export const useGameStore = create<GameStore>()(
         const actedTips = updatedInsiderTips.filter(t => t.isActedOn && !t.isExpired);
         if (actedTips.length > 0 || updatedSEC.investigationLevel > 0) {
           const lawyerReduction = updatedSEC.hasLawyer ? 0.4 : 1.0;
+          // Compliance officer reduces SEC pressure
+          const hasComplianceOfficer = Object.values(state.employees).some(e => e.role === 'compliance_officer');
+          const complianceReduction = hasComplianceOfficer ? 0.6 : 1.0;
           // Each acted tip adds small daily pressure
           const dailyRisk = actedTips.reduce((sum, t) => sum + t.investigationRiskBase * 0.01, 0);
-          const dailyPressure = dailyRisk * updatedSEC.scrutinyMultiplier * lawyerReduction;
-          // Natural decay when clean
-          const decay = actedTips.length === 0 ? 0.5 : 0;
+          const dailyPressure = dailyRisk * updatedSEC.scrutinyMultiplier * lawyerReduction * complianceReduction;
+          // Natural decay when clean (compliance officer boosts decay)
+          const decay = actedTips.length === 0 ? (hasComplianceOfficer ? 1.0 : 0.5) : (hasComplianceOfficer ? 0.3 : 0);
           let newLevel = Math.max(0, Math.min(100, updatedSEC.investigationLevel + dailyPressure - decay));
 
           // Threshold notifications
