@@ -791,7 +791,25 @@ export interface GameState {
     isPaused: boolean;
     tutorialStep: number;
   };
+  yearEndSummary: YearEndSummary | null;
   gameVersion: string;
   saveDate: number;
   isNewGame: boolean;
+}
+
+export interface YearEndSummary {
+  year: number;
+  playerReturn: number;        // % return this year
+  playerNetWorth: number;
+  rivalRankings: Array<{
+    id: string;
+    name: string;
+    fundName: string;
+    avatar: string;
+    annualReturn: number;
+    isPlayer?: boolean;
+  }>;
+  playerRank: number;          // 1-based
+  topPerformerName: string;
+  topPerformerReturn: number;
 }

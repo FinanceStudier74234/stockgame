@@ -33,6 +33,7 @@ import InsiderScreen from './components/insider/InsiderScreen';
 
 // Events
 import EventModal from './components/events/EventModal';
+import YearEndModal from './components/rivals/YearEndModal';
 
 function GameContent() {
   const { ui, player } = useGameStore();
@@ -87,6 +88,7 @@ function GameContent() {
       </div>
       <NotificationsPanel />
       <EventModal />
+      <YearEndModal />
     </div>
   );
 }

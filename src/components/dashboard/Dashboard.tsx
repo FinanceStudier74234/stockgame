@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, Briefcase, BarChart2, Star, Newspaper, Target, Calendar } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Briefcase, BarChart2, Star, Newspaper, Target, Calendar, Swords } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { formatCurrency, formatPercent, getTierLabel } from '../../utils/formatting';
 import { MILESTONES } from '../../data/winConditions';
+import { getRivalLeaderboard } from '../../data/rivals';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import StatBar from '../ui/StatBar';
@@ -10,7 +11,7 @@ import MiniChart from '../ui/MiniChart';
 import Button from '../ui/Button';
 
 export default function Dashboard() {
-  const { player, economy, stocks, time, setScreen, businesses, hedgeFund, completedMilestones } = useGameStore();
+  const { player, economy, stocks, time, setScreen, businesses, hedgeFund, completedMilestones, rivals } = useGameStore();
   if (!player) return null;
 
   const netWorth = player.finances.totalNetWorth;
@@ -57,6 +58,15 @@ export default function Dashboard() {
       .sort((a, b) => b.progress - a.progress)
       .slice(0, 3);
   }, [completedMilestones, netWorth, player, aum]);
+
+  // Rival leaderboard (top 4 entries by NAV)
+  const rivalStandings = useMemo(() => {
+    const playerNAV = hedgeFund?.nav || 1000;
+    const playerAUM = hedgeFund?.aum || player.finances.totalNetWorth;
+    const leaderboard = getRivalLeaderboard(rivals, playerNAV, playerAUM);
+    return leaderboard.slice(0, 5);
+  }, [rivals, hedgeFund, player.finances.totalNetWorth]);
+  const playerRank = rivalStandings.findIndex(r => r.id === 'player') + 1;
 
   // Today's Picks: momentum, value (discount to target), catalyst (earnings soon)
   const todaysPicks = useMemo(() => {
@@ -449,6 +459,34 @@ export default function Dashboard() {
                   {event.text}
                 </div>
               ))}
+            </div>
+          </Card>
+
+          {/* Rival Standings */}
+          <Card title="Rival Standings" padding="sm" headerRight={
+            <button onClick={() => setScreen('rivals')} className="text-[10px] text-accent-blue hover:text-blue-400">Full →</button>
+          }>
+            <div className="space-y-1 px-1 pb-1">
+              {rivalStandings.map((r, i) => {
+                const rank = i + 1;
+                const isPlayer = r.id === 'player';
+                const medal = ['🥇','🥈','🥉'][i] || `#${rank}`;
+                return (
+                  <div key={r.id} className={`flex items-center gap-2 py-1.5 rounded-lg px-1.5 ${isPlayer ? 'bg-accent-blue/10 border border-accent-blue/20' : ''}`}>
+                    <span className="text-sm w-6 text-center flex-shrink-0">{medal}</span>
+                    <span className="text-sm flex-shrink-0">{r.avatar}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-[10px] font-semibold truncate ${isPlayer ? 'text-accent-blue' : 'text-gray-300'}`}>
+                        {isPlayer ? 'You' : r.name}
+                      </div>
+                      <div className="text-[9px] text-gray-600 truncate">{r.fundName}</div>
+                    </div>
+                    <div className={`text-[10px] font-bold num flex-shrink-0 ${r.returnPct >= 0 ? 'text-accent-green' : 'text-accent-red'}`}>
+                      {r.returnPct >= 0 ? '+' : ''}{r.returnPct.toFixed(1)}%
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Card>
 

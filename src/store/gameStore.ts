@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import {
   GameState, GameScreen, Player, Stock, Business, Employee, HedgeFund, LimitedPartner,
   GameNotification, Portfolio, Job, DebtItem, AssetType, HousingLevel, OptionContract,
-  InsiderTip, SECStatus
+  InsiderTip, SECStatus, YearEndSummary
 } from '../types';
 import { createInitialStocks, createInitialETFs, createInitialCrypto } from '../data/stocks';
 import { createInitialEconomy, updateEconomy } from '../engine/economyEngine';
@@ -106,6 +106,9 @@ interface GameActions {
   buyBurnerIdentity: () => void;
   tipOffContact: (tipId: string) => void;
 
+  // Year-end
+  dismissYearEnd: () => void;
+
   // Save
   saveGame: () => void;
 }
@@ -151,6 +154,7 @@ const INITIAL_STATE: Omit<GameState, keyof GameActions> = {
   achievements: createAchievementsMap(),
   notifications: [],
   ui: { currentScreen: 'dashboard', selectedStock: null, isMenuOpen: false, isPaused: false, tutorialStep: 0 },
+  yearEndSummary: null,
   gameVersion: '1.0.0',
   saveDate: Date.now(),
   isNewGame: true,
@@ -357,7 +361,7 @@ export const useGameStore = create<GameStore>()(
           });
         }
 
-        // Aging: every 365 days
+        // Aging + year-end rival summary every 365 days
         if (totalDays % 365 === 0) {
           updatedPlayer = { ...updatedPlayer, age: updatedPlayer.age + 1 };
           get().addNotification({
@@ -365,6 +369,38 @@ export const useGameStore = create<GameStore>()(
             title: 'Birthday!',
             message: `You are now ${updatedPlayer.age} years old. Time flies.`,
           });
+
+          // Build year-end summary
+          const yearNum = Math.floor(totalDays / 365);
+          // Approximate yearly return from portfolio history snapshots
+          const snapshots = updatedPlayer.portfolio.portfolioHistory || [];
+          const yearAgoSnap = snapshots.length >= 12 ? snapshots[snapshots.length - 12] : snapshots[0];
+          const yearAgoNetWorth = yearAgoSnap?.netWorth || (updatedPlayer.finances.totalNetWorth * 0.9);
+          const playerAnnualReturn = yearAgoNetWorth > 0
+            ? ((updatedPlayer.finances.totalNetWorth - yearAgoNetWorth) / yearAgoNetWorth) * 100
+            : 0;
+          // Compute each rival's yearly return from last 12 monthly returns
+          const rivalRows = state.rivals.map(r => {
+            const last12 = r.monthlyReturns.slice(-12);
+            const navAtYearStart = last12.reduce((n, ret) => n / (1 + ret), r.monthlyReturns.reduce((n, ret) => n * (1 + ret), 1000));
+            const navNow = r.monthlyReturns.reduce((n, ret) => n * (1 + ret), 1000);
+            const annualReturn = navAtYearStart > 0 ? ((navNow - navAtYearStart) / navAtYearStart) * 100 : last12.reduce((s, r) => s + r, 0) * 100;
+            return { id: r.id, name: r.name, fundName: r.fundName, avatar: r.avatar, annualReturn };
+          });
+          const allRows = [...rivalRows, { id: 'player', name: updatedPlayer.name, fundName: 'Your Portfolio', avatar: '⭐', annualReturn: playerAnnualReturn, isPlayer: true }];
+          allRows.sort((a, b) => b.annualReturn - a.annualReturn);
+          const playerRank = allRows.findIndex(r => r.id === 'player') + 1;
+          const top = allRows[0];
+          const yearSummary: YearEndSummary = {
+            year: yearNum,
+            playerReturn: playerAnnualReturn,
+            playerNetWorth: updatedPlayer.finances.totalNetWorth,
+            rivalRankings: allRows,
+            playerRank,
+            topPerformerName: top.name,
+            topPerformerReturn: top.annualReturn,
+          };
+          set({ yearEndSummary: yearSummary });
         }
 
         // Process options: theta decay and update values
@@ -2217,6 +2253,10 @@ export const useGameStore = create<GameStore>()(
             set(s => ({ notifications: s.notifications.filter(n => n.id !== id) }));
           }, duration);
         }
+      },
+
+      dismissYearEnd: () => {
+        set({ yearEndSummary: null });
       },
 
       saveGame: () => {
