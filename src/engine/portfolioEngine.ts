@@ -112,7 +112,7 @@ export function executeBuy(
       currentPrice: price,
       marketValue: totalShares * price,
       unrealizedPnL: (price - newAvgCost) * totalShares,
-      unrealizedPnLPercent: ((price - newAvgCost) / newAvgCost) * 100,
+      unrealizedPnLPercent: newAvgCost > 0 ? ((price - newAvgCost) / newAvgCost) * 100 : 0,
     };
   } else {
     newHolding = {
@@ -179,7 +179,7 @@ export function executeSell(
       shares: remainingShares,
       marketValue: remainingShares * price,
       unrealizedPnL: (price - holding.averageCost) * remainingShares,
-      unrealizedPnLPercent: ((price - holding.averageCost) / holding.averageCost) * 100,
+      unrealizedPnLPercent: holding.averageCost > 0 ? ((price - holding.averageCost) / holding.averageCost) * 100 : 0,
       realizedPnL: holding.realizedPnL + realizedPnL,
     };
   }

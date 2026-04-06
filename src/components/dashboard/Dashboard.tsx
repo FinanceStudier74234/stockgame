@@ -4,6 +4,7 @@ import { useGameStore } from '../../store/gameStore';
 import { formatCurrency, formatPercent, getTierLabel } from '../../utils/formatting';
 import { MILESTONES } from '../../data/winConditions';
 import { getRivalLeaderboard } from '../../data/rivals';
+import { getXpForNextLevel } from '../../engine/playerEngine';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import StatBar from '../ui/StatBar';
@@ -61,7 +62,8 @@ export default function Dashboard() {
 
   // Rival leaderboard (top 4 entries by NAV)
   const rivalStandings = useMemo(() => {
-    const playerNAV = hedgeFund?.nav || 1000;
+    // Compute player NAV: use hedge fund nav if available, otherwise derive from portfolio all-time return
+    const playerNAV = hedgeFund?.nav || (1000 * (1 + player.portfolio.allTimeReturnPercent / 100));
     const playerAUM = hedgeFund?.aum || player.finances.totalNetWorth;
     const leaderboard = getRivalLeaderboard(rivals, playerNAV, playerAUM);
     return leaderboard.slice(0, 5);
@@ -403,16 +405,32 @@ export default function Dashboard() {
                   <div className="text-xl font-bold text-gray-200">{player.age}</div>
                 </div>
               </div>
-              <div className="w-full h-1.5 bg-dark-400 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-accent-blue to-accent-purple rounded-full transition-all duration-500"
-                  style={{ width: `${(player.experiencePoints % 200) / 2}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-[10px] text-gray-600 mt-1">
-                <span>XP: {player.experiencePoints.toLocaleString()}</span>
-                <span>Next: {Math.ceil(player.experiencePoints / 200) * 200}</span>
-              </div>
+              {(() => {
+                // Calculate XP accumulated at the start of current level
+                let xpAtStart = 0;
+                let threshold = 100;
+                for (let i = 1; i < player.level; i++) {
+                  xpAtStart += threshold;
+                  threshold = Math.floor(threshold * 1.5);
+                }
+                const xpForThisLevel = getXpForNextLevel(player.level);
+                const xpIntoLevel = player.experiencePoints - xpAtStart;
+                const pct = Math.min(100, (xpIntoLevel / xpForThisLevel) * 100);
+                return (
+                  <>
+                    <div className="w-full h-1.5 bg-dark-400 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-accent-blue to-accent-purple rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                      <span>XP: {player.experiencePoints.toLocaleString()}</span>
+                      <span>Next Lv: {(xpAtStart + xpForThisLevel).toLocaleString()}</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </Card>
 

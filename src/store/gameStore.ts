@@ -343,7 +343,7 @@ export const useGameStore = create<GameStore>()(
             newStocks[ticker] = {
               ...stock,
               dividendPerShare: newDivPerShare,
-              dividendYield: parseFloat(((newDivPerShare * 4 / stock.currentPrice) * 100).toFixed(2)),
+              dividendYield: stock.currentPrice > 0 ? parseFloat(((newDivPerShare * 4 / stock.currentPrice) * 100).toFixed(2)) : stock.dividendYield,
               nextDividendDay: totalDays + 91,
             };
           }

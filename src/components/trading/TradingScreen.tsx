@@ -109,7 +109,7 @@ function LimitOrderModal({
               )}
               {side === 'sell' && maxSellShares > 0 && (
                 <div className="flex gap-1 mt-1.5">
-                  {[Math.ceil(maxSellShares * 0.25), Math.ceil(maxSellShares * 0.5), Math.ceil(maxSellShares * 0.75), maxSellShares].map((n, i) => (
+                  {[Math.floor(maxSellShares * 0.25), Math.floor(maxSellShares * 0.5), Math.floor(maxSellShares * 0.75), maxSellShares].map((n, i) => (
                     <button key={i} onClick={() => setShares(n)} className="flex-1 py-1 rounded text-[10px] bg-dark-500 text-gray-400 hover:text-white hover:bg-dark-400 transition-all">
                       {['25%','50%','75%','All'][i]}
                     </button>
