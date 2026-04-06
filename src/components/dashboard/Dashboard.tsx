@@ -113,8 +113,36 @@ export default function Dashboard() {
     return events.sort((a, b) => a.daysAway - b.daysAway).slice(0, 5);
   }, [player.portfolio.holdings, stocks, time.totalDays]);
 
+  const showTips = time.totalDays <= 7;
+  const TIPS = [
+    { icon: '💼', text: 'Click Work each day in the action bar below to earn bonus pay + XP (base salary auto-credits monthly).' },
+    { icon: '📈', text: 'Buy stocks in the Market tab. Click a stock → Trade. Start small — prices move every day.' },
+    { icon: '🎯', text: 'Goal: Reach $1,000,000 net worth to become a Millionaire, then keep going to $1 Billion.' },
+    { icon: '🔥', text: 'Work consecutive days to build a streak. 5-day streaks give bonus payouts!' },
+    { icon: '⚡', text: 'Energy runs out after ~4 actions. Click Rest to recover +30 energy.' },
+    { icon: '📊', text: 'Check Milestones tab to always know your next goal.' },
+  ];
+
   return (
     <div className="screen-content h-full overflow-y-auto p-4 space-y-4">
+      {/* First-week onboarding tips */}
+      {showTips && (
+        <div className="bg-accent-blue/5 border border-accent-blue/20 rounded-xl p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-accent-blue">🚀 Getting Started — Day {time.totalDays}</span>
+            <span className="text-[9px] text-gray-500">Tips hide after Day 7</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {TIPS.map((tip, i) => (
+              <div key={i} className="flex items-start gap-2 text-[10px] text-gray-400">
+                <span className="flex-shrink-0">{tip.icon}</span>
+                <span className="leading-relaxed">{tip.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top row - key metrics */}
       <div className="grid grid-cols-4 gap-3">
         <Card padding="md" glowColor="green">

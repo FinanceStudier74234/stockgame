@@ -73,7 +73,7 @@ export const ARCHETYPES: Archetype[] = [
     },
     startingSkills: { ...BASE_SKILLS, sales: 5, operations: 8 },
     startingFinances: {
-      cash: 800,
+      cash: 2500,           // Enough to survive first month before figuring things out
       totalDebt: 2400,
       creditScore: 580,
       monthlyExpenses: 1100,
@@ -157,10 +157,10 @@ export const ARCHETYPES: Archetype[] = [
     },
     startingSkills: { ...BASE_SKILLS, finance: 15, economics: 12, accounting: 10 },
     startingFinances: {
-      cash: 1500,
+      cash: 4000,           // Student grants + first loan disbursement covers a few months
       totalDebt: 18000,
       creditScore: 640,
-      monthlyExpenses: 800,
+      monthlyExpenses: 700, // Shared housing + ramen budget
     },
     housingLevel: 'studio',
     lifestyleTier: 'struggling',
@@ -283,10 +283,10 @@ export const ARCHETYPES: Archetype[] = [
     },
     startingSkills: { ...BASE_SKILLS, operations: 20, entrepreneurship: 30, sales: 25, networking: 10 },
     startingFinances: {
-      cash: 1200,
+      cash: 3000,           // Saved for years before emigrating
       totalDebt: 0,
       creditScore: 600,
-      monthlyExpenses: 1400,
+      monthlyExpenses: 1200,
     },
     housingLevel: 'cheap_room',
     lifestyleTier: 'struggling',
@@ -366,10 +366,10 @@ export const ARCHETYPES: Archetype[] = [
     },
     startingSkills: { ...BASE_SKILLS, entrepreneurship: 35, coding: 20, branding: 20, sales: 25, networking: 20 },
     startingFinances: {
-      cash: 500,
+      cash: 3500,           // Maxed a card to fund the dream. Burn rate is real.
       totalDebt: 8000,
       creditScore: 590,
-      monthlyExpenses: 2000,
+      monthlyExpenses: 1600, // SF is expensive but they found a shared house
     },
     housingLevel: 'cheap_room',
     lifestyleTier: 'struggling',

@@ -721,20 +721,33 @@ export const useGameStore = create<GameStore>()(
         if (totalDays % 30 === 0) {
           const housing = getHousingCost(updatedPlayer.housingLevel);
           const totalMonthlyExpenses = housing + updatedPlayer.finances.monthlyDebtPayments +
-            (updatedPlayer.finances.monthlyExpenses * 0.4); // other living expenses
+            (updatedPlayer.finances.monthlyExpenses * 0.4);
+          // Auto-credit monthly salary so players don't starve for not clicking Work every day.
+          // Work action gives bonus pay + XP + skills on top of this base.
+          const monthlySalary = updatedPlayer.currentJob ? updatedPlayer.currentJob.salary / 12 : 0;
+          const netMonthly = monthlySalary - totalMonthlyExpenses;
           updatedPlayer = {
             ...updatedPlayer,
             finances: {
               ...updatedPlayer.finances,
-              cash: updatedPlayer.finances.cash - totalMonthlyExpenses,
+              cash: updatedPlayer.finances.cash + netMonthly,
+              monthlyIncome: monthlySalary,
             },
           };
 
           if (updatedPlayer.finances.cash < 0) {
             get().addNotification({
               type: 'warning',
-              title: 'Negative Cash!',
-              message: 'You\'ve run out of money! Find income fast or you may need to take on debt.',
+              title: '⚠️ Negative Cash!',
+              message: `Monthly expenses: $${totalMonthlyExpenses.toFixed(0)} | Salary: $${monthlySalary.toFixed(0)} | Net: ${netMonthly >= 0 ? '+' : ''}$${netMonthly.toFixed(0)}. Find better income!`,
+              duration: 8000,
+            });
+          } else {
+            get().addNotification({
+              type: 'info',
+              title: '📅 Monthly Summary',
+              message: `Salary +$${monthlySalary.toFixed(0)} · Expenses -$${totalMonthlyExpenses.toFixed(0)} · Net ${netMonthly >= 0 ? '+' : ''}$${netMonthly.toFixed(0)}. Clicking Work earns bonus pay + XP!`,
+              duration: 5000,
             });
           }
         }

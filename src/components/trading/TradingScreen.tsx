@@ -20,7 +20,8 @@ function LimitOrderModal({
   ticker: string;
   currentPrice: number;
 }) {
-  const { player, placeLimitOrder } = useGameStore();
+  const { player, placeLimitOrder, buyStock, sellStock } = useGameStore();
+  const [mode, setMode] = useState<'market' | 'advanced'>('market');
   const [orderType, setOrderType] = useState<'limit' | 'stop_loss' | 'trailing_stop'>('limit');
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [shares, setShares] = useState(10);
@@ -31,7 +32,22 @@ function LimitOrderModal({
 
   if (!player) return null;
 
-  const handlePlace = () => {
+  const holding = player.portfolio.holdings[ticker];
+  const maxSellShares = holding?.shares || 0;
+  const totalCost = shares * currentPrice;
+  const canAffordBuy = player.finances.cash >= totalCost;
+  const canSell = maxSellShares >= shares;
+
+  const handleMarketOrder = () => {
+    if (side === 'buy') {
+      buyStock(ticker, 'stock', shares, currentPrice);
+    } else {
+      sellStock(ticker, shares, currentPrice);
+    }
+    onClose();
+  };
+
+  const handlePlaceAdvanced = () => {
     placeLimitOrder({
       ticker,
       assetType: 'stock',
@@ -47,125 +63,151 @@ function LimitOrderModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Place Order: ${ticker}`} size="sm">
-      <div className="space-y-4">
-        {/* Order type */}
-        <div>
-          <div className="text-[10px] text-gray-500 uppercase mb-1.5">Order Type</div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {(['limit', 'stop_loss', 'trailing_stop'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setOrderType(t)}
-                className={`py-2 rounded-lg text-[10px] font-semibold transition-all ${
-                  orderType === t ? 'bg-accent-blue text-white' : 'bg-dark-500 text-gray-400 hover:text-white'
-                }`}
-              >
-                {t === 'trailing_stop' ? 'Trailing Stop' : t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+    <Modal isOpen={isOpen} onClose={onClose} title={`Trade ${ticker} — $${currentPrice.toFixed(2)}`} size="sm">
+      <div className="space-y-3">
+        {/* Mode toggle */}
+        <div className="flex gap-1 p-1 bg-dark-700 rounded-lg">
+          <button onClick={() => setMode('market')} className={`flex-1 py-1.5 rounded text-xs font-bold transition-all ${mode === 'market' ? 'bg-accent-blue text-white' : 'text-gray-400 hover:text-white'}`}>
+            ⚡ Market Order
+          </button>
+          <button onClick={() => setMode('advanced')} className={`flex-1 py-1.5 rounded text-xs font-bold transition-all ${mode === 'advanced' ? 'bg-dark-400 text-white' : 'text-gray-400 hover:text-white'}`}>
+            Advanced
+          </button>
+        </div>
+
+        {mode === 'market' ? (
+          <>
+            {/* Buy / Sell toggle */}
+            <div className="flex gap-2">
+              <button onClick={() => setSide('buy')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${side === 'buy' ? 'bg-accent-green text-white shadow-lg shadow-accent-green/20' : 'bg-dark-500 text-gray-400 hover:text-white'}`}>
+                BUY
               </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Side */}
-        <div className="flex gap-2">
-          <button
-            onClick={() => setSide('buy')}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${side === 'buy' ? 'bg-accent-green text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}
-          >
-            BUY
-          </button>
-          <button
-            onClick={() => setSide('sell')}
-            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${side === 'sell' ? 'bg-accent-red text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}
-          >
-            SELL
-          </button>
-        </div>
-
-        {/* Current price reference */}
-        <div className="text-[10px] text-gray-500 text-center">
-          Current price: <span className="text-white font-bold">${currentPrice.toFixed(2)}</span>
-        </div>
-
-        {/* Shares */}
-        <div>
-          <div className="text-[10px] text-gray-500 uppercase mb-1">Shares</div>
-          <input
-            type="number"
-            value={shares}
-            min={1}
-            onChange={e => setShares(Math.max(1, parseInt(e.target.value) || 1))}
-            className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue"
-          />
-        </div>
-
-        {/* Price inputs based on type */}
-        {orderType === 'limit' && (
-          <div>
-            <div className="text-[10px] text-gray-500 uppercase mb-1">
-              Limit Price {side === 'buy' ? '(Buy if price ≤)' : '(Sell if price ≥)'}
+              <button onClick={() => setSide('sell')} className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${side === 'sell' ? 'bg-accent-red text-white shadow-lg shadow-accent-red/20' : 'bg-dark-500 text-gray-400 hover:text-white'}`}>
+                SELL
+              </button>
             </div>
-            <input
-              type="number"
-              value={limitPrice.toFixed(2)}
-              step="0.01"
-              onChange={e => setLimitPrice(parseFloat(e.target.value) || currentPrice)}
-              className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue"
-            />
-          </div>
-        )}
 
-        {orderType === 'stop_loss' && (
-          <div>
-            <div className="text-[10px] text-gray-500 uppercase mb-1">Stop Price (Trigger at)</div>
-            <input
-              type="number"
-              value={stopPrice.toFixed(2)}
-              step="0.01"
-              onChange={e => setStopPrice(parseFloat(e.target.value) || currentPrice)}
-              className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue"
-            />
-          </div>
-        )}
+            {/* Shares */}
+            <div>
+              <div className="text-[10px] text-gray-500 uppercase mb-1.5">Shares</div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShares(s => Math.max(1, s - 1))} className="w-9 h-9 rounded-lg bg-dark-500 text-white hover:bg-dark-400 text-lg font-bold transition-colors">−</button>
+                <input
+                  type="number" min={1} value={shares}
+                  onChange={e => setShares(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="flex-1 text-center bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-lg font-bold text-white focus:outline-none focus:border-accent-blue"
+                />
+                <button onClick={() => setShares(s => s + 1)} className="w-9 h-9 rounded-lg bg-dark-500 text-white hover:bg-dark-400 text-lg font-bold transition-colors">+</button>
+              </div>
+              {side === 'buy' && (
+                <div className="flex gap-1 mt-1.5">
+                  {[1, 5, 10, 25].map(n => (
+                    <button key={n} onClick={() => setShares(n)} className="flex-1 py-1 rounded text-[10px] bg-dark-500 text-gray-400 hover:text-white hover:bg-dark-400 transition-all">{n}</button>
+                  ))}
+                  <button onClick={() => setShares(Math.max(1, Math.floor(player.finances.cash / currentPrice)))} className="flex-1 py-1 rounded text-[10px] bg-dark-500 text-gray-400 hover:text-white hover:bg-dark-400 transition-all">Max</button>
+                </div>
+              )}
+              {side === 'sell' && maxSellShares > 0 && (
+                <div className="flex gap-1 mt-1.5">
+                  {[Math.ceil(maxSellShares * 0.25), Math.ceil(maxSellShares * 0.5), Math.ceil(maxSellShares * 0.75), maxSellShares].map((n, i) => (
+                    <button key={i} onClick={() => setShares(n)} className="flex-1 py-1 rounded text-[10px] bg-dark-500 text-gray-400 hover:text-white hover:bg-dark-400 transition-all">
+                      {['25%','50%','75%','All'][i]}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-        {orderType === 'trailing_stop' && (
-          <div>
-            <div className="text-[10px] text-gray-500 uppercase mb-1">Trailing % (Stop if price drops by)</div>
-            <input
-              type="number"
-              value={trailingPct}
-              step="0.5"
-              min={0.5}
-              max={50}
-              onChange={e => setTrailingPct(parseFloat(e.target.value) || 5)}
-              className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue"
-            />
-          </div>
-        )}
+            {/* Summary */}
+            <div className="p-3 bg-dark-600 rounded-xl">
+              <div className="flex justify-between text-xs mb-1.5">
+                <span className="text-gray-400">{shares} shares × ${currentPrice.toFixed(2)}</span>
+                <span className="text-white font-bold num">${(totalCost).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Available cash</span>
+                <span className={`num font-semibold ${canAffordBuy ? 'text-accent-green' : 'text-accent-red'}`}>${player.finances.cash.toFixed(2)}</span>
+              </div>
+              {side === 'sell' && maxSellShares > 0 && (
+                <div className="flex justify-between text-xs mt-1">
+                  <span className="text-gray-500">You hold</span>
+                  <span className="text-white num">{maxSellShares} shares</span>
+                </div>
+              )}
+            </div>
 
-        {/* Expiry */}
-        <div>
-          <div className="text-[10px] text-gray-500 uppercase mb-1">Expires After (days)</div>
-          <div className="flex gap-1.5">
-            {[7, 30, 90].map(d => (
-              <button
-                key={d}
-                onClick={() => setExpiryDays(d)}
-                className={`flex-1 py-1.5 rounded text-[10px] font-semibold transition-all ${expiryDays === d ? 'bg-accent-blue text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}
+            <div className="flex gap-2">
+              <Button variant="secondary" fullWidth onClick={onClose}>Cancel</Button>
+              <Button
+                variant={side === 'buy' ? 'success' : 'danger'}
+                fullWidth
+                disabled={side === 'buy' ? !canAffordBuy : !canSell}
+                onClick={handleMarketOrder}
               >
-                {d}d
-              </button>
-            ))}
-          </div>
-        </div>
+                {side === 'buy' ? `Buy ${shares} shares` : `Sell ${shares} shares`}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Side */}
+            <div className="flex gap-2">
+              <button onClick={() => setSide('buy')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${side === 'buy' ? 'bg-accent-green text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}>BUY</button>
+              <button onClick={() => setSide('sell')} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${side === 'sell' ? 'bg-accent-red text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}>SELL</button>
+            </div>
 
-        <div className="flex gap-3">
-          <Button variant="secondary" fullWidth onClick={onClose}>Cancel</Button>
-          <Button variant={side === 'buy' ? 'success' : 'danger'} fullWidth onClick={handlePlace}>
-            Place {side === 'buy' ? 'Buy' : 'Sell'} Order
-          </Button>
-        </div>
+            <div>
+              <div className="text-[10px] text-gray-500 uppercase mb-1.5">Order Type</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['limit', 'stop_loss', 'trailing_stop'] as const).map(t => (
+                  <button key={t} onClick={() => setOrderType(t)} className={`py-2 rounded-lg text-[10px] font-semibold transition-all ${orderType === t ? 'bg-accent-blue text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}>
+                    {t === 'trailing_stop' ? 'Trailing' : t === 'stop_loss' ? 'Stop Loss' : 'Limit'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-[10px] text-gray-500 uppercase mb-1">Shares</div>
+              <input type="number" value={shares} min={1} onChange={e => setShares(Math.max(1, parseInt(e.target.value) || 1))} className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue" />
+            </div>
+
+            {orderType === 'limit' && (
+              <div>
+                <div className="text-[10px] text-gray-500 uppercase mb-1">Limit Price {side === 'buy' ? '(Buy if ≤)' : '(Sell if ≥)'}</div>
+                <input type="number" value={limitPrice.toFixed(2)} step="0.01" onChange={e => setLimitPrice(parseFloat(e.target.value) || currentPrice)} className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue" />
+              </div>
+            )}
+            {orderType === 'stop_loss' && (
+              <div>
+                <div className="text-[10px] text-gray-500 uppercase mb-1">Stop Price</div>
+                <input type="number" value={stopPrice.toFixed(2)} step="0.01" onChange={e => setStopPrice(parseFloat(e.target.value) || currentPrice)} className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue" />
+              </div>
+            )}
+            {orderType === 'trailing_stop' && (
+              <div>
+                <div className="text-[10px] text-gray-500 uppercase mb-1">Trail %</div>
+                <input type="number" value={trailingPct} step="0.5" min={0.5} max={50} onChange={e => setTrailingPct(parseFloat(e.target.value) || 5)} className="w-full bg-dark-600 border border-dark-400 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-blue" />
+              </div>
+            )}
+
+            <div>
+              <div className="text-[10px] text-gray-500 uppercase mb-1">Expires After</div>
+              <div className="flex gap-1.5">
+                {[7, 30, 90].map(d => (
+                  <button key={d} onClick={() => setExpiryDays(d)} className={`flex-1 py-1.5 rounded text-[10px] font-semibold transition-all ${expiryDays === d ? 'bg-accent-blue text-white' : 'bg-dark-500 text-gray-400 hover:text-white'}`}>{d}d</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="secondary" fullWidth onClick={onClose}>Cancel</Button>
+              <Button variant={side === 'buy' ? 'success' : 'danger'} fullWidth onClick={handlePlaceAdvanced}>
+                Place Order
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   );

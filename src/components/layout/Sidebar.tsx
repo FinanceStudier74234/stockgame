@@ -158,25 +158,56 @@ export default function Sidebar() {
       </nav>
 
       {/* Bottom status */}
-      <div className="p-3 border-t border-dark-500">
-        <div className="grid grid-cols-3 gap-1 text-center">
-          <div>
-            <div className="text-[10px] text-gray-500">Energy</div>
-            <div className={`text-xs font-bold num ${player.stats.energy > 50 ? 'text-accent-green' : player.stats.energy > 20 ? 'text-accent-yellow' : 'text-accent-red'}`}>
-              {Math.round(player.stats.energy)}
-            </div>
+      <div className="p-3 border-t border-dark-500 space-y-2">
+        {/* Energy */}
+        <div>
+          <div className="flex justify-between items-center mb-0.5">
+            <span className="text-[10px] text-gray-500">⚡ Energy</span>
+            <span className={`text-[10px] font-bold num ${player.stats.energy > 50 ? 'text-accent-green' : player.stats.energy > 20 ? 'text-accent-yellow' : 'text-accent-red'}`}>
+              {Math.round(player.stats.energy)}/100
+            </span>
           </div>
-          <div>
-            <div className="text-[10px] text-gray-500">Stress</div>
-            <div className={`text-xs font-bold num ${player.stats.stress < 30 ? 'text-accent-green' : player.stats.stress < 60 ? 'text-accent-yellow' : 'text-accent-red'}`}>
-              {Math.round(player.stats.stress)}
-            </div>
+          <div className="w-full h-1.5 bg-dark-600 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${player.stats.energy > 50 ? 'bg-accent-green' : player.stats.energy > 20 ? 'bg-accent-yellow' : 'bg-accent-red'}`}
+              style={{ width: `${Math.max(0, Math.min(100, player.stats.energy))}%` }}
+            />
           </div>
-          <div>
-            <div className="text-[10px] text-gray-500">Health</div>
-            <div className={`text-xs font-bold num ${player.stats.health > 60 ? 'text-accent-green' : player.stats.health > 30 ? 'text-accent-yellow' : 'text-accent-red'}`}>
-              {Math.round(player.stats.health)}
-            </div>
+          {player.stats.energy < 25 && (
+            <div className="text-[9px] text-accent-red mt-0.5">Low energy — rest to recover</div>
+          )}
+        </div>
+        {/* Stress */}
+        <div>
+          <div className="flex justify-between items-center mb-0.5">
+            <span className="text-[10px] text-gray-500">😰 Stress</span>
+            <span className={`text-[10px] font-bold num ${player.stats.stress < 30 ? 'text-accent-green' : player.stats.stress < 60 ? 'text-accent-yellow' : 'text-accent-red'}`}>
+              {Math.round(player.stats.stress)}/100
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-dark-600 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${player.stats.stress < 30 ? 'bg-accent-green' : player.stats.stress < 60 ? 'bg-accent-yellow' : 'bg-accent-red'}`}
+              style={{ width: `${Math.max(0, Math.min(100, player.stats.stress))}%` }}
+            />
+          </div>
+          {player.stats.stress > 75 && (
+            <div className="text-[9px] text-accent-red mt-0.5">High stress — exercise or rest</div>
+          )}
+        </div>
+        {/* Health */}
+        <div>
+          <div className="flex justify-between items-center mb-0.5">
+            <span className="text-[10px] text-gray-500">❤️ Health</span>
+            <span className={`text-[10px] font-bold num ${player.stats.health > 60 ? 'text-accent-green' : player.stats.health > 30 ? 'text-accent-yellow' : 'text-accent-red'}`}>
+              {Math.round(player.stats.health)}/100
+            </span>
+          </div>
+          <div className="w-full h-1.5 bg-dark-600 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${player.stats.health > 60 ? 'bg-accent-green' : player.stats.health > 30 ? 'bg-accent-yellow' : 'bg-accent-red'}`}
+              style={{ width: `${Math.max(0, Math.min(100, player.stats.health))}%` }}
+            />
           </div>
         </div>
       </div>
