@@ -72,7 +72,7 @@ function GameContent() {
     <div className="h-screen w-screen overflow-hidden" style={{
       display: 'grid',
       gridTemplateColumns: '220px 1fr',
-      gridTemplateRows: '48px 1fr 44px',
+      gridTemplateRows: '64px 1fr 44px',
     }}>
       <div style={{ gridColumn: '1 / -1', gridRow: '1 / 2' }}>
         <TopBar />

@@ -532,6 +532,9 @@ export interface HedgeFund {
   mediaAttention: number;
   regulatoryPressure: number;
   employees: string[];  // employee IDs
+  lastLPCallDay?: number;
+  lastLPReportDay?: number;
+  lastInvestorDayDay?: number;
 }
 
 // ============================================================

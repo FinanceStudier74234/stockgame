@@ -43,11 +43,11 @@ export function calculateStockMove(
   // Base volatility from stock's own characteristic
   const baseVol = stock.volatility / 100;
 
-  // Gaussian random component — the primary driver of daily noise
-  const randomMove = gaussianRandom(0, baseVol * 0.015);
+  // Gaussian random component — primary driver of daily noise (reduced from 0.015)
+  const randomMove = gaussianRandom(0, baseVol * 0.012);
 
-  // Momentum factor (slightly weaker to prevent runaway trends)
-  const momentumFactor = (stock.momentum - 50) / 6000;
+  // Momentum factor (weaker to prevent runaway trends)
+  const momentumFactor = (stock.momentum - 50) / 7000;
 
   // Economy phase factor
   let phaseFactor = 0;
@@ -73,13 +73,11 @@ export function calculateStockMove(
   // Sentiment factor
   const sentimentFactor = (marketSentiment / 100) * 0.0006;
 
-  // *** FUNDAMENTAL MEAN REVERSION — the key fix for unrealistic prices ***
-  // Compare current price to estimated fair value and pull towards it
+  // *** FUNDAMENTAL MEAN REVERSION — anchors prices to fair value ***
   const fairValue = estimateFairValue(stock);
   const priceToFairRatio = stock.currentPrice / fairValue;
-  // If price is 2x fair value, this creates a -0.2% daily drag
-  // If price is 0.5x fair value, this creates a +0.2% daily pull
-  const fundamentalReversion = clamp((1 - priceToFairRatio) * 0.003, -0.005, 0.005);
+  // Stronger reversion: if 2x fair value → -0.4% daily drag; 0.5x → +0.4% pull
+  const fundamentalReversion = clamp((1 - priceToFairRatio) * 0.004, -0.006, 0.006);
 
   // Valuation mean reversion (supplements fundamental reversion)
   const valuationFactor = (stock.valuation - 50) / 80000;
@@ -110,8 +108,9 @@ export function calculateStockMove(
     hypeFactor +
     earningsFactor;
 
-  // Cap extreme moves to realistic intraday ranges
-  return clamp(totalMove, -0.12, 0.12);
+  // Cap daily moves: ±8% for normal stocks, ±12% for high-vol biotech/small caps
+  const maxMove = (stock.sector === 'biotech' || stock.volatility > 70) ? 0.12 : 0.08;
+  return clamp(totalMove, -maxMove, maxMove);
 }
 
 /**
@@ -124,6 +123,9 @@ export function simulateEarnings(stock: Stock, economy: EconomyState): {
   newEps: number;
   newPE: number;
   headline: string;
+  revenueBeat: boolean;
+  guidance: 'raised' | 'maintained' | 'lowered';
+  epsSurprisePct: number;
 } {
   const qualityRoll = Math.random() * 100;
   const beatChance = stock.earningsStrength * 0.6 + (economy.gdpGrowth > 0 ? 15 : -10);
@@ -131,52 +133,75 @@ export function simulateEarnings(stock: Stock, economy: EconomyState): {
   let beatMiss: 'beat' | 'miss' | 'inline';
   let epsChange: number;
   let priceImpact: number;
+  let epsSurprisePct = 0;
 
   if (qualityRoll < beatChance) {
-    // Beat
     beatMiss = 'beat';
-    const beatMagnitude = 0.05 + Math.random() * 0.20; // 5-25% beat
+    const beatMagnitude = 0.05 + Math.random() * 0.20;
     epsChange = stock.eps > 0 ? stock.eps * beatMagnitude : Math.random() * 0.5;
-    priceImpact = 0.02 + Math.random() * 0.08; // 2-10% pop
-    if (stock.hype > 80) priceImpact *= 0.5; // priced in if overhyped
+    epsSurprisePct = beatMagnitude * 100;
+    priceImpact = 0.02 + Math.random() * 0.07; // 2-9% pop (reduced from 10%)
+    if (stock.hype > 80) priceImpact *= 0.4; // priced in
   } else if (qualityRoll > beatChance + 25) {
-    // Miss
     beatMiss = 'miss';
-    const missMagnitude = 0.05 + Math.random() * 0.25;
-    epsChange = stock.eps > 0 ? -stock.eps * missMagnitude : -(Math.random() * 0.5);
-    priceImpact = -(0.03 + Math.random() * 0.12); // 3-15% drop
-    if (stock.valuation > 70) priceImpact *= 0.5; // already cheap
+    const missMagnitude = 0.05 + Math.random() * 0.20;
+    epsChange = stock.eps > 0 ? -stock.eps * missMagnitude : -(Math.random() * 0.4);
+    epsSurprisePct = -missMagnitude * 100;
+    priceImpact = -(0.02 + Math.random() * 0.10); // 2-12% drop
+    if (stock.valuation > 70) priceImpact *= 0.6; // cushioned if already cheap
   } else {
-    // Inline
     beatMiss = 'inline';
     epsChange = stock.eps * (Math.random() * 0.04 - 0.02);
-    priceImpact = gaussianRandom(0, 0.02);
+    priceImpact = gaussianRandom(0, 0.015);
+    epsSurprisePct = epsChange / Math.max(0.01, Math.abs(stock.eps)) * 100;
   }
+
+  // Revenue beat/miss (correlated but not identical to EPS)
+  const revenueBeat = beatMiss === 'beat'
+    ? Math.random() < 0.75
+    : beatMiss === 'miss'
+      ? Math.random() < 0.25
+      : Math.random() < 0.5;
+
+  // Guidance
+  const guidanceRoll = Math.random();
+  const guidance: 'raised' | 'maintained' | 'lowered' =
+    beatMiss === 'beat' ? (guidanceRoll < 0.55 ? 'raised' : 'maintained') :
+    beatMiss === 'miss' ? (guidanceRoll < 0.60 ? 'lowered' : 'maintained') :
+    (guidanceRoll < 0.2 ? 'raised' : guidanceRoll < 0.75 ? 'maintained' : 'lowered');
+
+  // Guidance amplifies price move
+  if (guidance === 'raised') priceImpact += 0.01;
+  if (guidance === 'lowered') priceImpact -= 0.015;
 
   const newEps = parseFloat((stock.eps + epsChange).toFixed(2));
   const newPrice = stock.currentPrice * (1 + priceImpact);
   const newPE = newEps > 0 ? parseFloat((newPrice / newEps).toFixed(1)) : stock.peRatio;
 
+  const beatPct = Math.abs(epsSurprisePct).toFixed(0);
+  const guidanceStr = guidance === 'raised' ? ', raises guidance 🚀' : guidance === 'lowered' ? ', cuts guidance ⚠️' : '';
+  const revStr = revenueBeat ? ' Rev ✓' : ' Rev ✗';
+
   const headlines: Record<string, string[]> = {
     beat: [
-      `${stock.ticker} crushes earnings — EPS beats by ${(Math.abs(epsChange) / Math.max(0.01, Math.abs(stock.eps)) * 100).toFixed(0)}%`,
-      `${stock.ticker} reports blowout quarter, raises guidance`,
-      `${stock.ticker} earnings surprise sends shares higher`,
+      `${stock.ticker} Q earnings BEAT +${beatPct}% vs estimates${guidanceStr}`,
+      `${stock.ticker} blowout quarter: EPS surpasses consensus${guidanceStr}`,
+      `${stock.ticker} smashes estimates${revStr}${guidanceStr}`,
     ],
     miss: [
-      `${stock.ticker} misses estimates — revenue growth slows`,
-      `${stock.ticker} disappoints on earnings, guides lower`,
-      `${stock.ticker} reports weak quarter amid challenging conditions`,
+      `${stock.ticker} Q earnings MISS ${beatPct}% below estimates${guidanceStr}`,
+      `${stock.ticker} disappoints: weaker-than-expected quarter${guidanceStr}`,
+      `${stock.ticker} misses on EPS${revStr}${guidanceStr}`,
     ],
     inline: [
-      `${stock.ticker} meets expectations in mixed quarter`,
-      `${stock.ticker} reports in-line earnings, guidance unchanged`,
+      `${stock.ticker} in-line quarter${revStr}${guidanceStr}`,
+      `${stock.ticker} meets expectations, market reaction mixed`,
     ],
   };
   const headlineList = headlines[beatMiss];
   const headline = headlineList[Math.floor(Math.random() * headlineList.length)];
 
-  return { beatMiss, priceImpact, newEps, newPE, headline };
+  return { beatMiss, priceImpact, newEps, newPE, headline, revenueBeat, guidance, epsSurprisePct };
 }
 
 export function updateStock(stock: Stock, economy: EconomyState): Stock {
@@ -184,18 +209,19 @@ export function updateStock(stock: Stock, economy: EconomyState): Stock {
   const newPrice = Math.max(stock.currentPrice * (1 + movePercent), 0.01);
   const priceHistory = [...stock.priceHistory.slice(-89), parseFloat(newPrice.toFixed(4))];
 
-  // Metrics drift with mean reversion (not just random walk)
+  // Metrics drift with mean reversion
+  // Formula: new = old * (1-α) + target * α + noise  →  equilibrium = target
   const newHype = clamp(
-    stock.hype * 0.995 + 50 * 0.005 + gaussianRandom(0, 0.8), // slowly reverts to 50
+    stock.hype * 0.97 + 50 * 0.03 + gaussianRandom(0, 0.8),
     0, 100
   );
   const newMomentum = clamp(
-    stock.momentum * 0.96 + 50 * 0.01 + // reverts to 50
-    (movePercent > 0 ? 2.5 : -2.5) + gaussianRandom(0, 1.5),
+    stock.momentum * 0.96 + 50 * 0.04 + // properly reverts to 50
+    (movePercent > 0 ? 1.2 : -1.2) + gaussianRandom(0, 1.2),
     0, 100
   );
   const newSentiment = clamp(
-    stock.sentiment * 0.97 + 50 * 0.01 + // reverts to 50
+    stock.sentiment * 0.97 + 50 * 0.03 + // properly reverts to 50
     (economy.marketSentiment / 100) * 1.5 + gaussianRandom(0, 0.8),
     0, 100
   );
@@ -376,17 +402,46 @@ export function generateMarketNews(economy: EconomyState, stocks: Record<string,
     headlines.push('Greed index at extreme levels — contrarians warning of correction');
   }
 
-  // Random stock-specific news
-  const tickers = Object.keys(stocks);
-  if (tickers.length > 0) {
-    const randomTicker = tickers[Math.floor(Math.random() * tickers.length)];
-    const stock = stocks[randomTicker];
-    if (stock.changePercent > 4) {
-      headlines.push(`${randomTicker} surges ${stock.changePercent.toFixed(1)}% on strong momentum`);
-    } else if (stock.changePercent < -4) {
-      headlines.push(`${randomTicker} drops ${Math.abs(stock.changePercent).toFixed(1)}% amid selling pressure`);
+  // Stock-specific news: movers, analyst calls, insider activity
+  const allStocks = Object.values(stocks).filter(s => s.assetType === 'stock');
+  const bigMover = allStocks.sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent))[0];
+  if (bigMover && Math.abs(bigMover.changePercent) > 2.5) {
+    if (bigMover.changePercent > 0) {
+      headlines.push(`${bigMover.ticker} (+${bigMover.changePercent.toFixed(1)}%) leads gainers on volume surge`);
+    } else {
+      headlines.push(`${bigMover.ticker} (${bigMover.changePercent.toFixed(1)}%) leads decliners amid selling`);
     }
   }
 
-  return headlines.slice(0, 5);
+  // Analyst upgrade/downgrade (random, weighted by analyst rating)
+  const upgradeCandidates = allStocks.filter(s => s.analystRating === 'sell' || s.analystRating === 'hold');
+  const downgradeCandidates = allStocks.filter(s => s.analystRating === 'strong_buy' || s.analystRating === 'buy');
+  const ANALYST_FIRMS = ['Goldman Sachs', 'Morgan Stanley', 'JPMorgan', 'Citi', 'BofA', 'Deutsche Bank', 'UBS', 'Barclays'];
+  const firm = ANALYST_FIRMS[Math.floor(Math.random() * ANALYST_FIRMS.length)];
+
+  if (Math.random() < 0.35 && upgradeCandidates.length > 0) {
+    const s = upgradeCandidates[Math.floor(Math.random() * upgradeCandidates.length)];
+    const newTarget = Math.round(s.currentPrice * (1.1 + Math.random() * 0.3));
+    headlines.push(`${firm} upgrades ${s.ticker} to Buy, raises PT to $${newTarget}`);
+  } else if (Math.random() < 0.25 && downgradeCandidates.length > 0) {
+    const s = downgradeCandidates[Math.floor(Math.random() * downgradeCandidates.length)];
+    headlines.push(`${firm} downgrades ${s.ticker} to Hold, cites valuation concerns`);
+  }
+
+  // Earnings coming up (upcoming catalysts)
+  const earningsSoon = allStocks.filter(s => s.nextEarningsDay && s.nextEarningsDay > 0).slice(0, 3);
+  if (earningsSoon.length > 0 && Math.random() < 0.4) {
+    const picks = earningsSoon.slice(0, 2).map(s => s.ticker).join(', ');
+    headlines.push(`Earnings watch: ${picks} reporting results soon — analysts divided`);
+  }
+
+  // Hot sector rotation
+  const SECTORS = ['technology', 'ai', 'energy', 'healthcare', 'financials', 'industrials'];
+  if (Math.random() < 0.3) {
+    const hotSector = SECTORS[Math.floor(Math.random() * SECTORS.length)];
+    const coldSector = SECTORS.filter(s => s !== hotSector)[Math.floor(Math.random() * (SECTORS.length - 1))];
+    headlines.push(`Rotation: money flows into ${hotSector} while ${coldSector} sees outflows`);
+  }
+
+  return headlines.slice(0, 6);
 }

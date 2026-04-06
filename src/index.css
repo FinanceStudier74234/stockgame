@@ -76,6 +76,20 @@ html, body {
   animation-play-state: paused;
 }
 
+@keyframes news-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.news-scroll {
+  animation: news-scroll 60s linear infinite;
+  white-space: nowrap;
+}
+
+.news-scroll:hover {
+  animation-play-state: paused;
+}
+
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }

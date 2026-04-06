@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building, Lock, TrendingUp, TrendingDown, Users, DollarSign, Award, AlertTriangle } from 'lucide-react';
+import { Building, Lock, TrendingUp, TrendingDown, Users, DollarSign, Award, AlertTriangle, Phone, FileText, CalendarCheck } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { formatCurrency, formatPercent } from '../../utils/formatting';
 import { LimitedPartner } from '../../types';
@@ -29,7 +29,7 @@ const LP_TYPES: { id: LimitedPartner['type']; label: string; minInvest: number; 
 type FundTab = 'overview' | 'lps' | 'performance' | 'settings';
 
 export default function FundScreen() {
-  const { player, hedgeFund, employees, launchHedgeFund, addLimitedPartner, redeemLP, updateFundStrategy, addNotification } = useGameStore();
+  const { player, hedgeFund, employees, time, launchHedgeFund, addLimitedPartner, redeemLP, updateFundStrategy, scheduleLPCall, sendLPReport, hostInvestorDay, addNotification } = useGameStore();
   const [tab, setTab] = useState<FundTab>('overview');
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [showAddLPModal, setShowAddLPModal] = useState(false);
@@ -333,9 +333,114 @@ export default function FundScreen() {
       {/* LPs TAB */}
       {tab === 'lps' && (
         <div className="space-y-3">
+          {/* LP Relations Actions */}
+          <Card padding="md" glowColor={atRiskLPs > 0 ? 'red' : 'none'}>
+            <div className="text-xs font-semibold text-gray-300 mb-3">LP Relations</div>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              {/* Schedule LP Call */}
+              {(() => {
+                const callCooldown = 7;
+                const lastCall = hedgeFund.lastLPCallDay || 0;
+                const callReady = time.totalDays - lastCall >= callCooldown;
+                const callDaysLeft = callCooldown - (time.totalDays - lastCall);
+                return (
+                  <button
+                    onClick={scheduleLPCall}
+                    disabled={!callReady || hedgeFund.limitedPartners.length === 0}
+                    className={`flex flex-col items-center p-3 rounded-xl border text-center transition-all ${
+                      callReady && hedgeFund.limitedPartners.length > 0
+                        ? 'border-accent-blue/40 bg-accent-blue/10 hover:bg-accent-blue/20 text-accent-blue'
+                        : 'border-dark-500 bg-dark-600 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    <Phone size={16} className="mb-1" />
+                    <span className="text-[10px] font-bold">LP Call</span>
+                    <span className="text-[9px] mt-0.5 opacity-70">
+                      {callReady ? '+5-12 satisfaction each' : `${callDaysLeft}d cooldown`}
+                    </span>
+                  </button>
+                );
+              })()}
+              {/* Send LP Report */}
+              {(() => {
+                const reportCooldown = 25;
+                const lastReport = hedgeFund.lastLPReportDay || 0;
+                const reportReady = time.totalDays - lastReport >= reportCooldown;
+                const reportDaysLeft = reportCooldown - (time.totalDays - lastReport);
+                return (
+                  <button
+                    onClick={sendLPReport}
+                    disabled={!reportReady || hedgeFund.limitedPartners.length === 0}
+                    className={`flex flex-col items-center p-3 rounded-xl border text-center transition-all ${
+                      reportReady && hedgeFund.limitedPartners.length > 0
+                        ? 'border-accent-green/40 bg-accent-green/10 hover:bg-accent-green/20 text-accent-green'
+                        : 'border-dark-500 bg-dark-600 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    <FileText size={16} className="mb-1" />
+                    <span className="text-[10px] font-bold">Send Report</span>
+                    <span className="text-[9px] mt-0.5 opacity-70">
+                      {reportReady ? 'Boosts trust & retention' : `${reportDaysLeft}d cooldown`}
+                    </span>
+                  </button>
+                );
+              })()}
+              {/* Host Investor Day */}
+              {(() => {
+                const idCooldown = 90;
+                const lastID = hedgeFund.lastInvestorDayDay || 0;
+                const idReady = time.totalDays - lastID >= idCooldown;
+                const idDaysLeft = idCooldown - (time.totalDays - lastID);
+                return (
+                  <button
+                    onClick={hostInvestorDay}
+                    disabled={!idReady}
+                    className={`flex flex-col items-center p-3 rounded-xl border text-center transition-all ${
+                      idReady
+                        ? 'border-accent-yellow/40 bg-accent-yellow/10 hover:bg-accent-yellow/20 text-accent-yellow'
+                        : 'border-dark-500 bg-dark-600 text-gray-600 cursor-not-allowed'
+                    }`}
+                  >
+                    <CalendarCheck size={16} className="mb-1" />
+                    <span className="text-[10px] font-bold">Investor Day</span>
+                    <span className="text-[9px] mt-0.5 opacity-70">
+                      {idReady ? '$15K · All LPs +15, rep +8' : `${idDaysLeft}d cooldown`}
+                    </span>
+                  </button>
+                );
+              })()}
+            </div>
+
+            {/* LP Health Summary */}
+            {hedgeFund.limitedPartners.length > 0 && (
+              <div className="grid grid-cols-4 gap-2 pt-2 border-t border-dark-500">
+                <div className="text-center">
+                  <div className="text-lg font-bold text-white">{hedgeFund.limitedPartners.length}</div>
+                  <div className="text-[9px] text-gray-500">Total LPs</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-accent-green">{satisfiedLPs}</div>
+                  <div className="text-[9px] text-gray-500">Satisfied</div>
+                </div>
+                <div className="text-center">
+                  <div className={`text-lg font-bold ${atRiskLPs > 0 ? 'text-accent-red' : 'text-gray-400'}`}>{atRiskLPs}</div>
+                  <div className="text-[9px] text-gray-500">At Risk</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-lg font-bold text-accent-yellow">
+                    {hedgeFund.limitedPartners.length > 0
+                      ? Math.round(hedgeFund.limitedPartners.reduce((s, lp) => s + lp.satisfactionLevel, 0) / hedgeFund.limitedPartners.length)
+                      : 0}
+                  </div>
+                  <div className="text-[9px] text-gray-500">Avg Satisfaction</div>
+                </div>
+              </div>
+            )}
+          </Card>
+
           <div className="flex items-center justify-between">
             <div className="text-xs text-gray-500">
-              {hedgeFund.limitedPartners.length} LP investors | {satisfiedLPs} satisfied | {atRiskLPs} at risk of redemption
+              {hedgeFund.limitedPartners.length} LP investors · {formatCurrency(hedgeFund.totalLPCapital, true)} total committed
             </div>
             <Button variant="gold" size="sm" onClick={() => setShowAddLPModal(true)}>
               + Add LP Investor
@@ -356,8 +461,8 @@ export default function FundScreen() {
               {hedgeFund.limitedPartners.map(lp => (
                 <Card key={lp.id} padding="md" glowColor={lp.isRedemptionPending ? 'red' : 'none'}>
                   <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-bold text-white">{lp.name}</span>
                         <Badge variant={
                           lp.type === 'institution' ? 'purple' :
@@ -368,33 +473,45 @@ export default function FundScreen() {
                           {lp.type.replace(/_/g, ' ')}
                         </Badge>
                         {lp.isRedemptionPending && (
-                          <Badge variant="red" size="xs">WANTS OUT</Badge>
+                          <Badge variant="red" size="xs">⚠️ WANTS OUT</Badge>
+                        )}
+                        {lp.satisfactionLevel >= 85 && (
+                          <Badge variant="green" size="xs">⭐ Champion</Badge>
                         )}
                       </div>
                       <div className="text-[10px] text-gray-500 mt-0.5">
-                        Invested: {formatCurrency(lp.investedAmount, true)} | Lockup: {lp.lockupPeriod}mo
+                        Committed: {formatCurrency(lp.investedAmount, true)} · Lockup: {lp.lockupPeriod}mo · Threshold: {lp.redemptionThreshold}%
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className={`text-xs font-bold ${lp.satisfactionLevel >= 60 ? 'text-accent-green' : lp.satisfactionLevel >= 30 ? 'text-accent-yellow' : 'text-accent-red'}`}>
-                        {lp.satisfactionLevel}% satisfied
+                    <div className="text-right flex-shrink-0 ml-3">
+                      <div className={`text-sm font-bold num ${lp.satisfactionLevel >= 60 ? 'text-accent-green' : lp.satisfactionLevel >= 30 ? 'text-accent-yellow' : 'text-accent-red'}`}>
+                        {lp.satisfactionLevel}%
                       </div>
+                      <div className="text-[9px] text-gray-600">satisfaction</div>
                     </div>
                   </div>
 
-                  <div className="mt-2 w-full h-1 bg-dark-400 rounded-full overflow-hidden">
+                  <div className="mt-2 w-full h-1.5 bg-dark-400 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${lp.satisfactionLevel >= 60 ? 'bg-accent-green' : lp.satisfactionLevel >= 30 ? 'bg-accent-yellow' : 'bg-accent-red'}`}
+                      className={`h-full rounded-full transition-all ${lp.satisfactionLevel >= 60 ? 'bg-accent-green' : lp.satisfactionLevel >= 30 ? 'bg-accent-yellow' : 'bg-accent-red'}`}
                       style={{ width: `${lp.satisfactionLevel}%` }}
+                    />
+                  </div>
+                  {/* Redemption threshold marker */}
+                  <div className="relative h-0">
+                    <div
+                      className="absolute top-[-6px] w-0.5 h-3 bg-accent-red/50"
+                      style={{ left: `${lp.redemptionThreshold}%` }}
+                      title={`Redemption threshold: ${lp.redemptionThreshold}%`}
                     />
                   </div>
 
                   {lp.isRedemptionPending && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <AlertTriangle size={12} className="text-accent-red" />
-                      <span className="text-[10px] text-accent-red">Requesting redemption. Satisfy or process withdrawal.</span>
+                    <div className="mt-3 flex items-center gap-2 p-2 bg-accent-red/10 rounded-lg border border-accent-red/20">
+                      <AlertTriangle size={12} className="text-accent-red flex-shrink-0" />
+                      <span className="text-[10px] text-accent-red flex-1">Requesting redemption — call them or process withdrawal</span>
                       <Button variant="danger" size="sm" onClick={() => redeemLP(lp.id)}>
-                        Process Redemption
+                        Redeem
                       </Button>
                     </div>
                   )}

@@ -86,6 +86,9 @@ interface GameActions {
   addLimitedPartner: (name: string, type: LimitedPartner['type'], amount: number) => void;
   redeemLP: (lpId: string) => void;
   updateFundStrategy: (strategy: string) => void;
+  scheduleLPCall: () => void;
+  sendLPReport: () => void;
+  hostInvestorDay: () => void;
 
   // Events
   resolveEvent: (eventId: string, choiceId: string) => void;
@@ -270,12 +273,16 @@ export const useGameStore = create<GameStore>()(
               ],
               nextEarningsDay: totalDays + 90, // next earnings in ~90 days
             };
-            if (result.beatMiss !== 'inline') {
+            {
+              const revStr = result.revenueBeat ? '✓ Rev' : '✗ Rev';
+              const guidanceStr = result.guidance === 'raised' ? ' · Guidance ↑' : result.guidance === 'lowered' ? ' · Guidance ↓' : '';
+              const impactStr = `${result.priceImpact > 0 ? '+' : ''}${(result.priceImpact * 100).toFixed(1)}%`;
+              const isHeld = !!state.player.portfolio.holdings[ticker];
               get().addNotification({
-                type: result.beatMiss === 'beat' ? 'success' : 'warning',
-                title: `📊 ${ticker} Earnings`,
-                message: `${result.headline} | Impact: ${result.priceImpact > 0 ? '+' : ''}${(result.priceImpact * 100).toFixed(1)}%`,
-                duration: 7000,
+                type: result.beatMiss === 'beat' ? 'success' : result.beatMiss === 'miss' ? 'warning' : 'info',
+                title: `📊 ${ticker} Q${Math.ceil((totalDays % 365) / 91) || 1} Earnings ${result.beatMiss === 'beat' ? '✅ BEAT' : result.beatMiss === 'miss' ? '❌ MISS' : '➡️ Inline'}`,
+                message: `${result.headline} · ${revStr}${guidanceStr} · Price ${impactStr}${isHeld ? ' · YOU HOLD' : ''}`,
+                duration: result.beatMiss === 'inline' ? 5000 : 9000,
               });
             }
           }
@@ -1972,6 +1979,120 @@ export const useGameStore = create<GameStore>()(
           hedgeFund: state.hedgeFund ? { ...state.hedgeFund, strategy: strategy as any } : null,
         }));
         get().addNotification({ type: 'info', title: 'Strategy Updated', message: `Fund strategy changed to ${strategy.replace(/_/g, ' ')}.` });
+      },
+
+      scheduleLPCall: () => {
+        const { hedgeFund, time } = get();
+        if (!hedgeFund) return;
+        const cooldown = 7;
+        if ((hedgeFund.lastLPCallDay || 0) > time.totalDays - cooldown) {
+          get().addNotification({ type: 'warning', title: 'LP Call on Cooldown', message: `You called LPs recently. Next call available in ${cooldown - (time.totalDays - (hedgeFund.lastLPCallDay || 0))} days.` });
+          return;
+        }
+        if (hedgeFund.limitedPartners.length === 0) {
+          get().addNotification({ type: 'warning', title: 'No LPs', message: 'Add LP investors first before scheduling calls.' });
+          return;
+        }
+        // Boost satisfaction +5-12 for each LP, small chance a happy LP refers a new one
+        const boostPerLP = 5 + Math.floor(Math.random() * 8);
+        const updatedLPs = hedgeFund.limitedPartners.map(lp => ({
+          ...lp,
+          satisfactionLevel: Math.min(100, lp.satisfactionLevel + boostPerLP),
+          isRedemptionPending: lp.satisfactionLevel + boostPerLP >= lp.redemptionThreshold ? false : lp.isRedemptionPending,
+        }));
+        const referralChance = updatedLPs.filter(lp => lp.satisfactionLevel >= 80).length * 0.08;
+        const gotReferral = Math.random() < referralChance;
+        set(state => ({
+          hedgeFund: state.hedgeFund ? {
+            ...state.hedgeFund,
+            limitedPartners: updatedLPs,
+            lastLPCallDay: time.totalDays,
+            reputation: Math.min(100, state.hedgeFund.reputation + 2),
+          } : null,
+        }));
+        get().addNotification({
+          type: 'success',
+          title: '📞 LP Call Complete',
+          message: `Called all ${hedgeFund.limitedPartners.length} LPs. Each gained +${boostPerLP} satisfaction.${gotReferral ? ' 🎉 One LP offered to refer a colleague!' : ''}`,
+          duration: 7000,
+        });
+        get().advanceDay();
+      },
+
+      sendLPReport: () => {
+        const { hedgeFund, time } = get();
+        if (!hedgeFund) return;
+        const cooldown = 25;
+        if ((hedgeFund.lastLPReportDay || 0) > time.totalDays - cooldown) {
+          get().addNotification({ type: 'warning', title: 'Report on Cooldown', message: `Sent a report recently. Next report in ${cooldown - (time.totalDays - (hedgeFund.lastLPReportDay || 0))} days.` });
+          return;
+        }
+        if (hedgeFund.limitedPartners.length === 0) {
+          get().addNotification({ type: 'warning', title: 'No LPs', message: 'Add LP investors first.' });
+          return;
+        }
+        const navReturn = ((hedgeFund.nav - hedgeFund.inceptionNAV) / hedgeFund.inceptionNAV * 100).toFixed(1);
+        const isPositive = hedgeFund.nav > hedgeFund.inceptionNAV;
+        const boost = isPositive ? 8 : -3;
+        const updatedLPs = hedgeFund.limitedPartners.map(lp => ({
+          ...lp,
+          satisfactionLevel: Math.min(100, Math.max(0, lp.satisfactionLevel + boost + Math.floor(Math.random() * 5))),
+        }));
+        set(state => ({
+          hedgeFund: state.hedgeFund ? {
+            ...state.hedgeFund,
+            limitedPartners: updatedLPs,
+            lastLPReportDay: time.totalDays,
+            reputation: Math.min(100, state.hedgeFund.reputation + 1),
+          } : null,
+        }));
+        get().addNotification({
+          type: isPositive ? 'success' : 'info',
+          title: '📊 Monthly LP Report Sent',
+          message: `Sent performance report to all LPs. Fund return: ${navReturn}%. LPs ${isPositive ? 'pleased' : 'concerned'} with results. Satisfaction ${isPositive ? '+8' : '-3'}.`,
+          duration: 7000,
+        });
+      },
+
+      hostInvestorDay: () => {
+        const { hedgeFund, player, time } = get();
+        if (!hedgeFund || !player) return;
+        const cost = 15000;
+        if (player.finances.cash < cost) {
+          get().addNotification({ type: 'error', title: 'Insufficient Funds', message: `Hosting an Investor Day costs $${cost.toLocaleString()}.` });
+          return;
+        }
+        if ((hedgeFund.lastInvestorDayDay || 0) > time.totalDays - 90) {
+          get().addNotification({ type: 'warning', title: 'Too Soon', message: `Hosted an Investor Day recently. Wait ${90 - (time.totalDays - (hedgeFund.lastInvestorDayDay || 0))} more days.` });
+          return;
+        }
+        // Big boost to all LPs + reputation + chance of new LPs
+        const newLP_chance = 0.5 + hedgeFund.reputation / 200;
+        const gotNewLP = Math.random() < newLP_chance;
+        const updatedLPs = hedgeFund.limitedPartners.map(lp => ({
+          ...lp,
+          satisfactionLevel: Math.min(100, lp.satisfactionLevel + 15),
+          isRedemptionPending: false,
+        }));
+        set(state => ({
+          player: state.player ? {
+            ...state.player,
+            finances: { ...state.player.finances, cash: state.player.finances.cash - cost },
+          } : null,
+          hedgeFund: state.hedgeFund ? {
+            ...state.hedgeFund,
+            limitedPartners: updatedLPs,
+            reputation: Math.min(100, state.hedgeFund.reputation + 8),
+            lastInvestorDayDay: time.totalDays,
+          } : null,
+        }));
+        get().addNotification({
+          type: 'success',
+          title: '🎉 Investor Day Success!',
+          message: `Spent $${cost.toLocaleString()} hosting Investor Day. All LPs +15 satisfaction, all redemptions cleared. Reputation +8.${gotNewLP ? ' A new prospect signed up!' : ''}`,
+          duration: 10000,
+        });
+        get().advanceDay();
       },
 
       shortSell: (ticker: string, shares: number) => {
