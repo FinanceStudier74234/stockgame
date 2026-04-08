@@ -112,6 +112,9 @@ interface GameActions {
   // Year-end
   dismissYearEnd: () => void;
 
+  // Weekly challenge
+  dismissWeeklyChallenge: () => void;
+
   // Save
   saveGame: () => void;
 }
@@ -158,6 +161,7 @@ const INITIAL_STATE: Omit<GameState, keyof GameActions> = {
   notifications: [],
   ui: { currentScreen: 'dashboard', selectedStock: null, isMenuOpen: false, isPaused: false, tutorialStep: 0 },
   yearEndSummary: null,
+  weeklyChallenge: null,
   gameVersion: '1.0.0',
   saveDate: Date.now(),
   isNewGame: true,
@@ -238,7 +242,7 @@ export const useGameStore = create<GameStore>()(
         let newEconomy = totalDays % 3 === 0 ? updateEconomy(state.economy) : state.economy;
 
         // Update markets
-        const newStocks = updateAllStocks(state.stocks, newEconomy);
+        const newStocks = updateAllStocks(state.stocks, newEconomy, dayOfYear);
         const newCrypto = updateAllCrypto(state.crypto, newEconomy);
 
         // ── Earnings reports: each stock fires on its own nextEarningsDay ──
@@ -1235,6 +1239,110 @@ export const useGameStore = create<GameStore>()(
           }
         }
 
+        // ── Weekly challenge: generate new or check completion ──────────────
+        let updatedChallenge = state.weeklyChallenge;
+        const weekNum = Math.floor(totalDays / 7);
+        const CHALLENGE_TEMPLATES: Array<import('../types').WeeklyChallenge> = [
+          { id: 'wk_work3', title: 'Consistent Worker', description: 'Work 3 days this week', icon: '💼', type: 'work_days', target: 3, progress: 0, reward: { cash: 250, xp: 50 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+          { id: 'wk_study3', title: 'Hungry to Learn', description: 'Study a skill 3 times this week', icon: '📚', type: 'study_times', target: 3, progress: 0, reward: { xp: 80, skill: 'finance', skillAmt: 3 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+          { id: 'wk_exercise3', title: 'Stay Sharp', description: 'Exercise 3 days this week', icon: '🏋️', type: 'exercise_days', target: 3, progress: 0, reward: { stat: 'health', statAmt: 10, xp: 40 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+          { id: 'wk_trades3', title: 'Active Trader', description: 'Make 3 trades this week', icon: '📈', type: 'trades_made', target: 3, progress: 0, reward: { cash: 500, xp: 60 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+          { id: 'wk_network3', title: 'Network Builder', description: 'Network 3 times this week', icon: '🤝', type: 'network_days', target: 3, progress: 0, reward: { stat: 'network', statAmt: 5, xp: 50 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+          { id: 'wk_work5', title: 'Grind Week', description: 'Work 5 days in a row this week', icon: '🔥', type: 'work_days', target: 5, progress: 0, reward: { cash: 800, xp: 120 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+          { id: 'wk_study5', title: 'Deep Focus', description: 'Study 5 times this week', icon: '🧠', type: 'study_times', target: 5, progress: 0, reward: { xp: 150, skill: 'chartAnalysis', skillAmt: 5 }, weekNumber: weekNum, completed: false, expiresDay: totalDays + 7 },
+        ];
+        if (!updatedChallenge || updatedChallenge.weekNumber < weekNum) {
+          // New week — pick a challenge
+          const pick = CHALLENGE_TEMPLATES[weekNum % CHALLENGE_TEMPLATES.length];
+          updatedChallenge = { ...pick, weekNumber: weekNum, progress: 0, completed: false, expiresDay: totalDays + 7 };
+          get().addNotification({
+            type: 'info',
+            title: `${pick.icon} New Weekly Challenge`,
+            message: `${pick.title}: ${pick.description}. Complete by day ${totalDays + 7} for bonus rewards!`,
+            duration: 8000,
+          });
+        }
+
+        // ── Daily micro-events: add variety without blocking gameplay ─────────
+        // Fire with ~25% probability each day from a large rotating pool
+        if (Math.random() < 0.28) {
+          const MICRO_EVENTS = [
+            // Career & Work
+            { title: '☕ Coffee with a Colleague', msg: 'A coworker shared a useful tip over coffee.', stat: 'network', amt: 1 },
+            { title: '📰 Industry Article', msg: 'An insightful piece on market dynamics. +1 Economics', skill: 'economics', amt: 0.8 },
+            { title: '🎯 Spotted a Pattern', msg: 'Noticed a recurring chart pattern. +1 Chart Analysis', skill: 'chartAnalysis', amt: 0.8 },
+            { title: '📞 Cold Call Success', msg: 'Made a great connection on a cold call today.', stat: 'reputation', amt: 1 },
+            { title: '💡 Insight Moment', msg: 'Had a lightbulb moment about valuation methods. +1 Finance', skill: 'finance', amt: 1 },
+            { title: '🤝 Ran into an Old Contact', msg: 'A contact from years ago might have a lead for you.', stat: 'network', amt: 2 },
+            { title: '📊 Market Research', msg: 'Deep-dived into sector data this evening.', skill: 'macroAnalysis', amt: 0.8 },
+            { title: '🎓 Podcast Episode', msg: 'A finance podcast shifted your thinking on risk.', skill: 'tradingPsychology', amt: 1 },
+            // Health & Personal
+            { title: '😴 Great Night\'s Sleep', msg: 'Woke up fully rested and focused. +5 Energy', stat: 'energy', amt: 5 },
+            { title: '🍎 Healthy Meal Prep', msg: 'Prepped healthy food for the week. +2 Health', stat: 'health', amt: 2 },
+            { title: '🧘 Meditation Session', msg: 'Five minutes of mindfulness helped clear the noise. -5 Stress', stat: 'stress', amt: -5 },
+            { title: '🏃 Quick Run', msg: 'A short jog before work set a positive tone. +3 Energy', stat: 'energy', amt: 3 },
+            { title: '😤 Stressful Commute', msg: 'Traffic was brutal today. +3 Stress', stat: 'stress', amt: 3 },
+            // Market insights
+            { title: '📈 Spotted Unusual Volume', msg: 'Noticed unusual trading volume in a sector. Knowledge +1', skill: 'chartAnalysis', amt: 0.5 },
+            { title: '🌍 Macro Read', msg: 'Spent an hour studying global macro trends.', skill: 'macroAnalysis', amt: 1 },
+            { title: '⚡ Options Concept Clicked', msg: 'Finally understood a complex options strategy. +1 Options', skill: 'options', amt: 1 },
+            { title: '🏛️ Fed Speech Analysis', msg: 'Read between the lines of a Fed speech. +1 Economics', skill: 'economics', amt: 1.2 },
+            { title: '💹 Trade Journaling', msg: 'Reviewed past trades and found patterns. +1 Psychology', skill: 'tradingPsychology', amt: 1 },
+            // Lucky/unlucky
+            { title: '🍀 Lucky Break', msg: 'Small windfall from an unexpected source. +$50', cash: 50 },
+            { title: '🚗 Minor Car Issue', msg: 'A small repair needed. -$200', cash: -200 },
+            { title: '☕ Bought Coffee for the Team', msg: 'Goodwill pays dividends. +1 Reputation', stat: 'reputation', amt: 0.5 },
+            { title: '📱 Tech Glitch', msg: 'Platform outage meant a missed opportunity. -2 Confidence', stat: 'confidence', amt: -2 },
+            // Relationship/social
+            { title: '🎉 Friend\'s Success', msg: 'A friend got promoted. Their energy is motivating. +3 Confidence', stat: 'confidence', amt: 3 },
+            { title: '💬 Investor Forum Post', msg: 'Your analysis got upvoted on a finance forum. +1 Reputation', stat: 'reputation', amt: 1 },
+            { title: '📅 Networking Dinner', msg: 'Attended an industry dinner. +2 Network', stat: 'network', amt: 2 },
+          ];
+          const pick = MICRO_EVENTS[Math.floor(Math.random() * MICRO_EVENTS.length)];
+          let playerAfterMicro = updatedPlayer;
+          if (pick.skill) {
+            const sk = pick.skill as keyof typeof updatedPlayer.skills;
+            playerAfterMicro = { ...playerAfterMicro, skills: { ...playerAfterMicro.skills, [sk]: Math.min(100, (playerAfterMicro.skills[sk] || 0) + pick.amt) } };
+          }
+          if (pick.stat && pick.amt !== undefined) {
+            const s = pick.stat as keyof typeof updatedPlayer.stats;
+            if (s === 'energy' || s === 'health' || s === 'stress' || s === 'confidence' || s === 'network' || s === 'reputation') {
+              playerAfterMicro = { ...playerAfterMicro, stats: { ...playerAfterMicro.stats, [s]: Math.max(0, Math.min(100, (updatedPlayer.stats[s] || 0) + pick.amt)) } };
+            }
+          }
+          if (pick.cash) {
+            playerAfterMicro = { ...playerAfterMicro, finances: { ...playerAfterMicro.finances, cash: playerAfterMicro.finances.cash + pick.cash } };
+          }
+          updatedPlayer = playerAfterMicro;
+          get().addNotification({
+            type: pick.cash && pick.cash < 0 ? 'warning' : 'info',
+            title: pick.title,
+            message: pick.msg,
+            duration: 4000,
+          });
+        }
+
+        // ── Phase change notification ────────────────────────────────────────
+        if (newEconomy.phase !== state.economy.phase) {
+          const PHASE_BRIEFINGS: Record<string, string> = {
+            boom: '📈 Economy entering BOOM phase. Growth stocks and tech tend to lead. Consider cyclicals.',
+            euphoria: '🚀 Market EUPHORIA! Valuations stretched but momentum powerful. Risk management critical.',
+            slowdown: '⚠️ Economic SLOWDOWN beginning. Defensive sectors (utilities, healthcare) outperform.',
+            recession: '📉 RECESSION confirmed. Cash is king. Look for dividend stocks and bonds.',
+            crisis: '🔴 MARKET CRISIS. Extreme fear. Defensive positioning. Best buying opportunities appear here.',
+            recovery: '🌱 RECOVERY phase. Early cycle leaders (financials, industrials) often outperform.',
+            expansion: '📊 Steady EXPANSION. Balanced market. Diversified portfolio performs well.',
+            stagflation: '🛢️ STAGFLATION: High inflation + slow growth. Energy, commodities, TIPS tend to hold.',
+            deflation: '❄️ DEFLATION risk. Protect cash. Debt becomes more expensive in real terms.',
+          };
+          get().addNotification({
+            type: 'market',
+            title: `📰 Market Phase: ${newEconomy.phase.toUpperCase()}`,
+            message: PHASE_BRIEFINGS[newEconomy.phase] || `Economy shifted to ${newEconomy.phase} phase.`,
+            duration: 10000,
+          });
+        }
+
         set({
           time: newTime,
           economy: newEconomy,
@@ -1247,6 +1355,7 @@ export const useGameStore = create<GameStore>()(
           insiderTips: updatedInsiderTips,
           secStatus: updatedSEC,
           firedMarketShocks,
+          weeklyChallenge: updatedChallenge,
         });
       },
 
@@ -1320,6 +1429,21 @@ export const useGameStore = create<GameStore>()(
         };
         set({ player: updatedPlayer });
         get().advanceDay();
+        // Update weekly challenge
+        const wc = get().weeklyChallenge;
+        if (wc && !wc.completed && (wc.type === 'work_days' || wc.type === 'cash_earned')) {
+          const newProgress = wc.progress + 1;
+          const completed = newProgress >= wc.target;
+          let rewardMsg = '';
+          let updatedPlayerWC = get().player!;
+          if (completed && !wc.completed) {
+            if (wc.reward.cash) { updatedPlayerWC = { ...updatedPlayerWC, finances: { ...updatedPlayerWC.finances, cash: updatedPlayerWC.finances.cash + wc.reward.cash } }; rewardMsg = ` +$${wc.reward.cash}`; }
+            if (wc.reward.xp) { updatedPlayerWC = { ...updatedPlayerWC, experiencePoints: updatedPlayerWC.experiencePoints + wc.reward.xp }; rewardMsg += ` +${wc.reward.xp}XP`; }
+            set({ player: updatedPlayerWC });
+            get().addNotification({ type: 'achievement', title: `🏆 Challenge Complete: ${wc.title}!`, message: `${wc.description} — Rewards:${rewardMsg}`, duration: 8000 });
+          }
+          set({ weeklyChallenge: { ...wc, progress: newProgress, completed } });
+        }
         get().addNotification({
           type: notifType,
           title,
@@ -1364,6 +1488,20 @@ export const useGameStore = create<GameStore>()(
         const updatedPlayer = applyStudy(player, skillId as any, 4 * multiplier);
         set({ player: updatedPlayer });
         get().advanceDay();
+        // Update study challenge
+        const wcStudy = get().weeklyChallenge;
+        if (wcStudy && !wcStudy.completed && wcStudy.type === 'study_times') {
+          const np = wcStudy.progress + 1;
+          const done = np >= wcStudy.target;
+          if (done) {
+            let p = get().player!;
+            if (wcStudy.reward.xp) p = { ...p, experiencePoints: p.experiencePoints + wcStudy.reward.xp };
+            if (wcStudy.reward.skill && wcStudy.reward.skillAmt) p = { ...p, skills: { ...p.skills, [wcStudy.reward.skill]: Math.min(100, (p.skills[wcStudy.reward.skill as keyof typeof p.skills] || 0) + wcStudy.reward.skillAmt) } };
+            set({ player: p });
+            get().addNotification({ type: 'achievement', title: `🏆 Challenge Complete: ${wcStudy.title}!`, message: `Studied ${wcStudy.target} times — bonus XP earned!`, duration: 8000 });
+          }
+          set({ weeklyChallenge: { ...wcStudy, progress: np, completed: done } });
+        }
         const gain = (updatedPlayer.skills[skillId as keyof typeof updatedPlayer.skills] || 0) -
           (player.skills[skillId as keyof typeof player.skills] || 0);
         const label = SKILL_LABELS[skillId] || skillId;
@@ -1396,6 +1534,19 @@ export const useGameStore = create<GameStore>()(
           : updatedPlayer;
         set({ player: finalPlayer });
         get().advanceDay();
+        // Update exercise challenge
+        const wcEx = get().weeklyChallenge;
+        if (wcEx && !wcEx.completed && wcEx.type === 'exercise_days') {
+          const np = wcEx.progress + 1;
+          const done = np >= wcEx.target;
+          if (done) {
+            let p = get().player!;
+            if (wcEx.reward.stat && wcEx.reward.statAmt) p = { ...p, stats: { ...p.stats, [wcEx.reward.stat]: Math.min(100, (p.stats[wcEx.reward.stat as keyof typeof p.stats] as number || 0) + wcEx.reward.statAmt) } };
+            set({ player: p });
+            get().addNotification({ type: 'achievement', title: `🏆 Challenge Complete: ${wcEx.title}!`, message: `Exercised ${wcEx.target} times — bonus health gained!`, duration: 8000 });
+          }
+          set({ weeklyChallenge: { ...wcEx, progress: np, completed: done } });
+        }
         const EX_FLAVORS = [
           'Hit the gym hard today.', 'Morning run cleared your head.',
           'Yoga session — stress is way down.', 'Pushed through a tough workout.',
@@ -1426,6 +1577,19 @@ export const useGameStore = create<GameStore>()(
         }
         set({ player: updatedPlayer });
         get().advanceDay();
+        // Update network challenge
+        const wcNet = get().weeklyChallenge;
+        if (wcNet && !wcNet.completed && wcNet.type === 'network_days') {
+          const np = wcNet.progress + 1;
+          const done = np >= wcNet.target;
+          if (done) {
+            let p = get().player!;
+            if (wcNet.reward.stat && wcNet.reward.statAmt) p = { ...p, stats: { ...p.stats, [wcNet.reward.stat]: Math.min(100, (p.stats[wcNet.reward.stat as keyof typeof p.stats] as number || 0) + wcNet.reward.statAmt) } };
+            set({ player: p });
+            get().addNotification({ type: 'achievement', title: `🏆 Challenge Complete: ${wcNet.title}!`, message: `Networked ${wcNet.target} times this week!`, duration: 8000 });
+          }
+          set({ weeklyChallenge: { ...wcNet, progress: np, completed: done } });
+        }
         const NET_FLAVORS = [
           'Met several promising contacts.', 'Exchanged cards at an industry mixer.',
           'Long lunch with a former colleague.', 'Attended a finance networking event.',
@@ -1534,6 +1698,19 @@ export const useGameStore = create<GameStore>()(
           finances: { ...player.finances, cash: result.newCash },
         };
         set({ player: updatedPlayer });
+        // Trade challenge progress
+        const wcTrade = get().weeklyChallenge;
+        if (wcTrade && !wcTrade.completed && wcTrade.type === 'trades_made') {
+          const np = wcTrade.progress + 1;
+          const done = np >= wcTrade.target;
+          if (done) {
+            let p = get().player!;
+            if (wcTrade.reward.cash) p = { ...p, finances: { ...p.finances, cash: p.finances.cash + wcTrade.reward.cash } };
+            set({ player: p });
+            get().addNotification({ type: 'achievement', title: `🏆 Challenge Complete: ${wcTrade.title}!`, message: `Made ${wcTrade.target} trades this week — bonus cash earned!`, duration: 8000 });
+          }
+          set({ weeklyChallenge: { ...wcTrade, progress: np, completed: done } });
+        }
         get().addNotification({
           type: 'success',
           title: `Bought ${ticker}`,
@@ -2391,6 +2568,10 @@ export const useGameStore = create<GameStore>()(
 
       dismissYearEnd: () => {
         set({ yearEndSummary: null });
+      },
+
+      dismissWeeklyChallenge: () => {
+        set({ weeklyChallenge: null });
       },
 
       saveGame: () => {

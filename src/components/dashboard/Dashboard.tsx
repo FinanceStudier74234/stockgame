@@ -12,7 +12,7 @@ import MiniChart from '../ui/MiniChart';
 import Button from '../ui/Button';
 
 export default function Dashboard() {
-  const { player, economy, stocks, time, setScreen, businesses, hedgeFund, completedMilestones, rivals } = useGameStore();
+  const { player, economy, stocks, time, setScreen, businesses, hedgeFund, completedMilestones, rivals, weeklyChallenge } = useGameStore();
   if (!player) return null;
 
   const netWorth = player.finances.totalNetWorth;
@@ -563,6 +563,37 @@ export default function Dashboard() {
               ))}
             </div>
           </Card>
+
+          {/* Weekly Challenge */}
+          {weeklyChallenge && (
+            <Card title="Weekly Challenge" padding="sm" headerRight={
+              <span className="text-[10px] text-accent-yellow font-bold">
+                {weeklyChallenge.completed ? '✅ Done!' : `${weeklyChallenge.progress}/${weeklyChallenge.target}`}
+              </span>
+            }>
+              <div className="px-1 pb-1">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-lg">{weeklyChallenge.icon}</span>
+                  <div>
+                    <div className={`text-xs font-bold ${weeklyChallenge.completed ? 'text-accent-green' : 'text-white'}`}>{weeklyChallenge.title}</div>
+                    <div className="text-[10px] text-gray-400">{weeklyChallenge.description}</div>
+                  </div>
+                </div>
+                <div className="w-full h-2 bg-dark-500 rounded-full overflow-hidden mb-1.5">
+                  <div
+                    className={`h-full rounded-full transition-all ${weeklyChallenge.completed ? 'bg-accent-green' : 'bg-accent-blue'}`}
+                    style={{ width: `${Math.min(100, (weeklyChallenge.progress / weeklyChallenge.target) * 100)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[9px] text-gray-500">
+                  <span>
+                    Reward: {weeklyChallenge.reward.cash ? `+$${weeklyChallenge.reward.cash}` : ''}{weeklyChallenge.reward.xp ? ` +${weeklyChallenge.reward.xp}XP` : ''}{weeklyChallenge.reward.skill ? ` +${weeklyChallenge.reward.skillAmt} ${weeklyChallenge.reward.skill}` : ''}{weeklyChallenge.reward.stat ? ` +${weeklyChallenge.reward.statAmt} ${weeklyChallenge.reward.stat}` : ''}
+                  </span>
+                  <span>Expires day {weeklyChallenge.expiresDay}</span>
+                </div>
+              </div>
+            </Card>
+          )}
 
           {/* Upcoming Portfolio Events */}
           {upcomingEvents.length > 0 && (

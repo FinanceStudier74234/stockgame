@@ -795,9 +795,24 @@ export interface GameState {
     tutorialStep: number;
   };
   yearEndSummary: YearEndSummary | null;
+  weeklyChallenge: WeeklyChallenge | null;
   gameVersion: string;
   saveDate: number;
   isNewGame: boolean;
+}
+
+export interface WeeklyChallenge {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  type: 'work_days' | 'study_times' | 'exercise_days' | 'portfolio_pct' | 'cash_earned' | 'trades_made' | 'network_days';
+  target: number;
+  progress: number;
+  reward: { cash?: number; xp?: number; skill?: string; skillAmt?: number; stat?: string; statAmt?: number };
+  weekNumber: number;
+  completed: boolean;
+  expiresDay: number;
 }
 
 export interface YearEndSummary {

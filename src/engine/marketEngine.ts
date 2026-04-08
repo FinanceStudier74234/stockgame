@@ -33,18 +33,33 @@ function estimateFairValue(stock: Stock): number {
   return stock.eps * fairPE;
 }
 
+/**
+ * Returns true if the given day-of-year falls within a quarterly earnings season window.
+ * Q1: days 1-21 (Jan), Q2: days 91-111 (Apr), Q3: days 182-202 (Jul), Q4: days 274-294 (Oct)
+ */
+function isEarningsSeason(dayOfYear: number): boolean {
+  return (dayOfYear >= 1 && dayOfYear <= 21) ||
+    (dayOfYear >= 91 && dayOfYear <= 111) ||
+    (dayOfYear >= 182 && dayOfYear <= 202) ||
+    (dayOfYear >= 274 && dayOfYear <= 294);
+}
+
 export function calculateStockMove(
   stock: Stock,
   economy: EconomyState,
-  daysSinceLastEarnings: number
+  daysSinceLastEarnings: number,
+  dayOfYear = 0
 ): number {
   const { phase, inflationRate, federalFundsRate, marketSentiment, liquidityIndex } = economy;
 
   // Base volatility from stock's own characteristic
   const baseVol = stock.volatility / 100;
 
+  // Earnings season amplifier: +15% volatility during Q1/Q2/Q3/Q4 reporting windows
+  const earningsSeasonMult = isEarningsSeason(dayOfYear) ? 1.15 : 1.0;
+
   // Gaussian random component — primary driver of daily noise (reduced from 0.015)
-  const randomMove = gaussianRandom(0, baseVol * 0.012);
+  const randomMove = gaussianRandom(0, baseVol * 0.012 * earningsSeasonMult);
 
   // Momentum factor (weaker to prevent runaway trends)
   const momentumFactor = (stock.momentum - 50) / 7000;
@@ -204,8 +219,8 @@ export function simulateEarnings(stock: Stock, economy: EconomyState): {
   return { beatMiss, priceImpact, newEps, newPE, headline, revenueBeat, guidance, epsSurprisePct };
 }
 
-export function updateStock(stock: Stock, economy: EconomyState): Stock {
-  const movePercent = calculateStockMove(stock, economy, 0);
+export function updateStock(stock: Stock, economy: EconomyState, dayOfYear = 0): Stock {
+  const movePercent = calculateStockMove(stock, economy, 0, dayOfYear);
   const newPrice = Math.max(stock.currentPrice * (1 + movePercent), 0.01);
   const priceHistory = [...stock.priceHistory.slice(-89), parseFloat(newPrice.toFixed(4))];
 
@@ -294,11 +309,12 @@ export function updateCrypto(crypto: CryptoAsset, economy: EconomyState): Crypto
 
 export function updateAllStocks(
   stocks: Record<string, Stock>,
-  economy: EconomyState
+  economy: EconomyState,
+  dayOfYear = 0
 ): Record<string, Stock> {
   const updated: Record<string, Stock> = {};
   for (const ticker of Object.keys(stocks)) {
-    updated[ticker] = updateStock(stocks[ticker], economy);
+    updated[ticker] = updateStock(stocks[ticker], economy, dayOfYear);
   }
   return updated;
 }

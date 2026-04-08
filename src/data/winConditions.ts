@@ -17,17 +17,24 @@ export interface Milestone {
 }
 
 export const MILESTONES: Milestone[] = [
-  // Wealth milestones
+  // Wealth milestones — dense early game, wider gaps later
   { id: 'ms_1k', title: 'First Thousand', icon: '💵', category: 'wealth', description: '$1,000 cash in hand', requirement: { type: 'cash', value: 1000 }, reward: '+5 Confidence' },
+  { id: 'ms_5k', title: 'Small Stash', icon: '💵', category: 'wealth', description: '$5,000 net worth', requirement: { type: 'netWorth', value: 5000 }, reward: '+3 Discipline' },
   { id: 'ms_10k', title: 'Five Figures', icon: '💰', category: 'wealth', description: '$10,000 net worth', requirement: { type: 'netWorth', value: 10000 }, reward: '+5 Discipline' },
+  { id: 'ms_25k', title: 'Building Momentum', icon: '📊', category: 'wealth', description: '$25,000 net worth', requirement: { type: 'netWorth', value: 25000 }, reward: '+5 Confidence, trading unlocked' },
   { id: 'ms_50k', title: 'Getting Serious', icon: '📈', category: 'wealth', description: '$50,000 net worth', requirement: { type: 'netWorth', value: 50000 }, reward: '+10 Financial Knowledge' },
   { id: 'ms_100k', title: 'Six Figures', icon: '🥂', category: 'wealth', description: '$100,000 net worth', requirement: { type: 'netWorth', value: 100000 }, reward: 'Unlock advanced trading', isBiographyEvent: true },
+  { id: 'ms_250k', title: 'Quarter Million', icon: '💸', category: 'wealth', description: '$250,000 net worth', requirement: { type: 'netWorth', value: 250000 }, reward: '+8 Reputation' },
   { id: 'ms_500k', title: 'Half a Million', icon: '💎', category: 'wealth', description: '$500,000 net worth', requirement: { type: 'netWorth', value: 500000 }, reward: '+10 Reputation', isBiographyEvent: true },
+  { id: 'ms_750k', title: 'Three-Quarters There', icon: '🎯', category: 'wealth', description: '$750,000 net worth', requirement: { type: 'netWorth', value: 750000 }, reward: '+5 Investing Skill' },
   { id: 'ms_1m', title: 'Millionaire', icon: '🏆', category: 'wealth', description: '$1,000,000 net worth', requirement: { type: 'netWorth', value: 1000000 }, reward: 'Unlock hedge fund', isBiographyEvent: true },
+  { id: 'ms_2_5m', title: 'Serious Money', icon: '💰', category: 'wealth', description: '$2,500,000 net worth', requirement: { type: 'netWorth', value: 2500000 }, reward: '+10 Reputation, expand network' },
   { id: 'ms_5m', title: 'Multi-Millionaire', icon: '🌟', category: 'wealth', description: '$5,000,000 net worth', requirement: { type: 'netWorth', value: 5000000 }, reward: '+15 Reputation, unlock institutional_capital', isBiographyEvent: true },
   { id: 'ms_10m', title: 'Ultra Wealthy', icon: '🚀', category: 'wealth', description: '$10,000,000 net worth', requirement: { type: 'netWorth', value: 10000000 }, reward: 'Unlock compound housing' },
+  { id: 'ms_25m', title: 'Top 0.1%', icon: '⭐', category: 'wealth', description: '$25,000,000 net worth', requirement: { type: 'netWorth', value: 25000000 }, reward: '+10 Reputation' },
   { id: 'ms_50m', title: 'Top 1%', icon: '💫', category: 'wealth', description: '$50,000,000 net worth', requirement: { type: 'netWorth', value: 50000000 }, reward: 'Media attention unlocked', isBiographyEvent: true },
   { id: 'ms_100m', title: 'Centimillionaire', icon: '👑', category: 'wealth', description: '$100,000,000 net worth', requirement: { type: 'netWorth', value: 100000000 }, reward: 'Legacy mode unlocked', isBiographyEvent: true },
+  { id: 'ms_500m', title: 'Half a Billion', icon: '🌐', category: 'wealth', description: '$500,000,000 net worth', requirement: { type: 'netWorth', value: 500000000 }, reward: 'Global investor status' },
   { id: 'ms_1b', title: 'BILLIONAIRE', icon: '🌍', category: 'wealth', description: '$1,000,000,000 net worth — The Ultimate Win', requirement: { type: 'netWorth', value: 1000000000 }, reward: 'YOU WIN. New Game+ unlocked.', isWinCondition: true, isBiographyEvent: true },
 
   // Career milestones
