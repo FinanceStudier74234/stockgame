@@ -430,8 +430,8 @@ export const JOBS: Job[] = [
     title: 'Quant Researcher',
     company: 'AlphaSignal Capital',
     tier: 'advanced',
-    salary: 180000,
-    dailyWage: 180000 / 260,
+    salary: 225000,          // Bumped from $180k — hardest skill gate of any advanced role deserves top pay
+    dailyWage: 225000 / 260,
     stressPerDay: 40,
     energyCostPerDay: 35,
     skillRequirements: { quantResearch: 25, coding: 20, finance: 25 },

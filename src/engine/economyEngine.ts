@@ -3,15 +3,15 @@ import { gaussianRandom, clamp } from '../utils/math';
 import { generateNewsForDay } from '../data/newsTemplates';
 
 const PHASE_TRANSITIONS: Record<EconomicPhase, { next: EconomicPhase[]; weights: number[]; avgDuration: number }> = {
-  recovery:    { next: ['expansion', 'slowdown'],         weights: [0.8, 0.2],       avgDuration: 90 },
-  expansion:   { next: ['boom', 'slowdown'],              weights: [0.6, 0.4],       avgDuration: 180 },
-  boom:        { next: ['euphoria', 'slowdown'],          weights: [0.4, 0.6],       avgDuration: 120 },
-  euphoria:    { next: ['slowdown', 'recession'],         weights: [0.5, 0.5],       avgDuration: 60 },
-  slowdown:    { next: ['recession', 'expansion'],        weights: [0.55, 0.45],     avgDuration: 90 },
-  recession:   { next: ['crisis', 'recovery'],            weights: [0.3, 0.7],       avgDuration: 180 },
-  crisis:      { next: ['recession', 'recovery'],         weights: [0.4, 0.6],       avgDuration: 90 },
-  stagflation: { next: ['recession', 'slowdown'],         weights: [0.5, 0.5],       avgDuration: 150 },
-  deflation:   { next: ['crisis', 'recovery'],            weights: [0.4, 0.6],       avgDuration: 120 },
+  recovery:    { next: ['expansion', 'slowdown'],              weights: [0.8, 0.2],           avgDuration: 90 },
+  expansion:   { next: ['boom', 'slowdown'],                   weights: [0.6, 0.4],           avgDuration: 120 }, // was 180 — 6 months felt stale; trimmed to 4 months
+  boom:        { next: ['euphoria', 'slowdown'],               weights: [0.4, 0.6],           avgDuration: 120 },
+  euphoria:    { next: ['slowdown', 'recession'],              weights: [0.5, 0.5],           avgDuration: 90 },  // was 60 — too short to capitalize on; extended to 3 months
+  slowdown:    { next: ['recession', 'expansion', 'stagflation'], weights: [0.50, 0.35, 0.15], avgDuration: 90 }, // added stagflation as a possible exit
+  recession:   { next: ['crisis', 'recovery'],                 weights: [0.3, 0.7],           avgDuration: 120 }, // was 180 — 6 months of pain was too punishing; reduced to 4
+  crisis:      { next: ['recession', 'recovery'],              weights: [0.4, 0.6],           avgDuration: 90 },
+  stagflation: { next: ['recession', 'slowdown'],              weights: [0.5, 0.5],           avgDuration: 150 },
+  deflation:   { next: ['crisis', 'recovery'],                 weights: [0.4, 0.6],           avgDuration: 120 },
 };
 
 const PHASE_TARGETS: Record<EconomicPhase, Partial<EconomyState>> = {
@@ -26,17 +26,29 @@ const PHASE_TARGETS: Record<EconomicPhase, Partial<EconomyState>> = {
   deflation:   { gdpGrowth: -2.0, inflationRate: -0.5, unemploymentRate: 8.0, marketSentiment: -60, liquidityIndex: 30, federalFundsRate: 0.25, vixLevel: 45 },
 };
 
-const SECTOR_ROTATION_BY_PHASE: Record<EconomicPhase, Sector[]> = {
-  recovery:    ['consumer', 'technology', 'industrials'],
-  expansion:   ['technology', 'consumer', 'banking', 'industrials'],
-  boom:        ['technology', 'ai', 'semiconductors', 'consumer'],
-  euphoria:    ['ai', 'semiconductors', 'technology', 'biotech'],
-  slowdown:    ['utilities', 'healthcare', 'defense', 'banking'],
-  recession:   ['utilities', 'healthcare', 'defense'],
-  crisis:      ['utilities', 'defense', 'energy'],
-  stagflation: ['energy', 'defense', 'utilities'],
-  deflation:   ['utilities', 'healthcare', 'realestate'],
+// Each phase has a pool of valid sectors; on each transition a random subset of 3 is picked
+// so no two game runs rotate identically.
+const SECTOR_ROTATION_POOL: Record<EconomicPhase, Sector[]> = {
+  recovery:    ['consumer', 'technology', 'industrials', 'realestate', 'banking'],
+  expansion:   ['technology', 'consumer', 'banking', 'industrials', 'communications'],
+  boom:        ['technology', 'ai', 'semiconductors', 'consumer', 'industrials'],
+  euphoria:    ['ai', 'semiconductors', 'technology', 'biotech', 'crypto'],
+  slowdown:    ['utilities', 'healthcare', 'defense', 'banking', 'energy'],
+  recession:   ['utilities', 'healthcare', 'defense', 'realestate'],
+  crisis:      ['utilities', 'defense', 'energy', 'healthcare'],
+  stagflation: ['energy', 'defense', 'utilities', 'realestate'],
+  deflation:   ['utilities', 'healthcare', 'realestate', 'consumer'],
 };
+
+function pickRotationSectors(phase: EconomicPhase): Sector[] {
+  const pool = [...SECTOR_ROTATION_POOL[phase]];
+  // Fisher-Yates shuffle
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, 3);
+}
 
 export function updateEconomy(economy: EconomyState): EconomyState {
   const targets = PHASE_TARGETS[economy.phase];
@@ -141,7 +153,7 @@ export function updateEconomy(economy: EconomyState): EconomyState {
     oilPrice: parseFloat(newOil.toFixed(2)),
     goldPrice: parseFloat(newGold.toFixed(2)),
     cryptoSentiment: parseFloat(newCryptoSentiment.toFixed(1)),
-    sectorRotation: SECTOR_ROTATION_BY_PHASE[newPhase],
+    sectorRotation: pickRotationSectors(newPhase),
     newsHeadlines: updatedHeadlines,
   };
 }
@@ -184,7 +196,7 @@ export function createInitialEconomy(): EconomyState {
     oilPrice: parseFloat(noise(78, 0.3).toFixed(2)),
     goldPrice: parseFloat(noise(2000, 0.15).toFixed(2)),
     cryptoSentiment: parseFloat(noise(40, 0.5).toFixed(1)),
-    sectorRotation: SECTOR_ROTATION_BY_PHASE[startPhase],
+    sectorRotation: pickRotationSectors(startPhase),
     phaseMonthsRemaining: Math.floor(60 + Math.random() * 120),
     bubbleSectors: [],
     crisisTriggers: [],

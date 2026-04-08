@@ -40,8 +40,8 @@ export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
     type: 'media',
     category: 'side_hustle',
     description: 'Private trading community with stock alerts and analysis.',
-    startupCost: 200,
-    monthlyRevenue: [500, 5000],
+    startupCost: 500,          // Was $200 — too cheap for 250% monthly ROI; raised to match newsletter
+    monthlyRevenue: [150, 2000], // Was [500, 5000] — capped to prevent skipping all content at $200 startup
     monthlyExpenses: [100, 400],
     risk: 40,
     scalability: 70,
@@ -160,9 +160,9 @@ export const BUSINESS_TEMPLATES: BusinessTemplate[] = [
     category: 'enterprise',
     description: 'Manage your own wealth and that of ultra-high-net-worth individuals.',
     startupCost: 500000,
-    monthlyRevenue: [50000, 500000],
-    monthlyExpenses: [30000, 150000],
-    risk: 30,
+    monthlyRevenue: [30000, 150000], // Was [50k, 500k] — $500k/month with 30 risk was game-breaking
+    monthlyExpenses: [20000, 80000],
+    risk: 50,                        // Raised from 30 — managing UHNW money carries real reputational risk
     scalability: 40,
     timeRequired: 60,
     requiredSkills: { finance: 70, leadership: 60, valuation: 60, macroAnalysis: 50 },

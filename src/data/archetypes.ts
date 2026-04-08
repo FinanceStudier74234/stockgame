@@ -241,10 +241,10 @@ export const ARCHETYPES: Archetype[] = [
     },
     startingSkills: { ...BASE_SKILLS, finance: 35, accounting: 30, economics: 30, valuation: 25, quantResearch: 15 },
     startingFinances: {
-      cash: 4000,
+      cash: 6000,            // Signing bonus covers first months; was $4k which caused insolvency spiral
       totalDebt: 35000,
       creditScore: 700,
-      monthlyExpenses: 1800,
+      monthlyExpenses: 1300, // Chicago apartment + commuting; was $1800 which made archetype unplayable
     },
     housingLevel: 'apartment',
     lifestyleTier: 'modest',
